@@ -3,6 +3,6 @@
 // Elle est faite pour être visible dans le navigateur.
 // N’utilisez JAMAIS la clé "secret" ou "service_role" ici.
 window.GSC_CONFIG = {
-  url: "https://https://xinuxpjdvcgllipehosj.supabase.co",
+  url: "https://xinuxpjdvcgllipehosj.supabase.co",
   key: "sb_publishable_YKv9Qg_gF_hDqe3nvu2nNw_26jD4J2X"
 };
