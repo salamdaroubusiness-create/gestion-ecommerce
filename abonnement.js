@@ -203,8 +203,14 @@ function gaccView(){
  return h}
 
 /* ---------- branchement sur app.js ---------- */
+function prixCard(){
+ if(!X.loaded)return"";
+ if(!X.offOk)return`<div class=cd><h2>Prix des espaces</h2><p class=no>Module non installé : exécutez installation_complete.sql dans Supabase, puis rechargez la page.</p></div>`;
+ const pr=f=>f=="essentiel_annuel"?ANNUEL_ESSENTIEL:TAR[f].prix,row=(f,l,u)=>`<tr><td>${l}<td><input id=x-pr-${f} type=number min=100 step=500 value=${pr(f)} style="width:110px"> F ${u}<td>${ab_("oprix",f,"Enregistrer")}`;
+ return`<div class=cd><h2>Prix des espaces</h2><div class=w><table><tr><th>Espace et formule<th>Prix<th></tr><tr><td colspan=3><b>🔒 Espace Abonnement</b> (abonnement mensuel)</tr>${row("essentiel","Essentiel","par mois")}${row("croissance","Croissance","par mois")}${row("essentiel_annuel","Essentiel annuel (option)","pour 12 mois")}<tr><td colspan=3><b>🔒 Espace Accompagnement</b> (paiement unique, suivi de 2 mois)</tr>${row("accompagnement","Accompagnement","paiement unique")}</table></div><p class=mu>Le nouveau prix s’applique aux prochains paiements ; les accès déjà payés ne changent pas.</p></div>`}
 const _view=view;
 view=function(){
+ if(me&&admin&&tab=="admin")return _view()+prixCard();
  if(me&&MINE.includes(tab)){
   if(X.err)return`<div class=cd><h2>Information</h2><p class=no>${esc(X.err)}</p></div>`;
   if(!X.loaded)return`<div class=cd><p class=mu>Chargement…</p></div>`;
