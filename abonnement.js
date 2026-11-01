@@ -1,0 +1,210 @@
+/* GSC Business Center : Espace Abonnement + Espace Accompagnement
+   À charger APRÈS app.js (voir index.html). Ne modifie pas app.js : il le complète. */
+(()=>{
+const TAR={
+ essentiel:{nom:"Essentiel",prix:5000,txt:"Accès complet à l’Espace Abonnement : idées de business, produits testés, cas concrets avec chiffres réels, cours de publicité."},
+ croissance:{nom:"Croissance",prix:10000,txt:"Tout l’Essentiel, avec aide à l’analyse de vos KPI, assistance prioritaire et une séance mensuelle de conseil."},
+ accompagnement:{nom:"Accompagnement 30 jours",prix:35000,txt:"Un suivi personnalisé pour démarrer votre e-commerce : 4 semaines, 4 séances, un bilan final. Inclut l’Espace Abonnement."}};
+const ANNUEL_ESSENTIEL=50000;
+const CATS={idee:"Idées de business",produit_teste:"Produits testés",cas_concret:"Cas concrets",publicite:"Publicité",nouveaute:"Nouveautés"};
+const PLATS={facebook:"Facebook",instagram:"Instagram",whatsapp:"WhatsApp Business",tiktok:"TikTok"};
+const SEM=[["Diagnostic et installation","Diagnostic e-commerce"],["Gestion commerciale","Système de gestion structuré"],["Performance et développement","Tableau de bord analysé"],["Évaluation et autonomie","Plan d’action à 30 jours"]];
+const MINE=["abo","acc","gabo","gcon","gacc"];
+
+const sty=document.createElement("style");
+sty.textContent=`.xg{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:14px}
+.xo{background:var(--cd);border:1px solid var(--bd);border-radius:10px;padding:14px}.xo.hot{border:2px solid var(--mg)}
+.xo h3{margin:0 0 4px;color:var(--in)}@media(prefers-color-scheme:dark){.xo h3{color:#fff}}
+.xpx{font-size:22px;font-weight:700;color:var(--mg)}
+.xch{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.xch button{border:1px solid var(--bd);background:var(--cd);color:var(--tx);border-radius:16px;padding:5px 12px;cursor:pointer;font:inherit}
+.xch button.on{background:var(--mg);color:#fff;border-color:var(--mg)}
+.xt{display:inline-block;background:var(--ac);border-radius:10px;padding:1px 8px;font-size:11px;margin-left:6px}
+.xd{background:var(--cd);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;margin-bottom:10px}
+.xd summary{cursor:pointer}.xd img{max-width:100%;border-radius:8px;margin:8px 0}
+.xr{background:var(--ac);border-left:4px solid var(--mg);padding:6px 10px;margin:8px 0}
+.xp{height:10px;background:var(--ac);border-radius:6px;overflow:hidden}.xp i{display:block;height:100%;background:var(--mg)}
+.xw{border-left:4px solid var(--pu);padding-left:10px;margin:14px 0 6px}
+.xk{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.xk input[type=checkbox]{width:auto;min-width:0}.xk input[type=text]{flex:1;min-width:140px}
+.xs{padding:4px 9px}`;
+document.head.appendChild(sty);
+
+/* ---------- outils ---------- */
+const today=()=>new Date().toISOString().slice(0,10);
+const addDays=(d,n)=>{const x=new Date(d+"T00:00:00Z");x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10)};
+const left=d=>Math.round((new Date(d+"T00:00:00Z")-new Date(today()+"T00:00:00Z"))/864e5);
+const fd=d=>d?new Date(String(d).slice(0,10)+"T00:00:00Z").toLocaleDateString("fr-FR",{timeZone:"UTC"}):"";
+const fdt=d=>d?new Date(d).toLocaleString("fr-FR",{dateStyle:"full",timeStyle:"short"}):"";
+const live=a=>!!a&&a.statut=="actif"&&a.expire>=today();
+const st=a=>a.statut=="suspendu"?"Suspendu":a.expire<today()?"Expiré":"Actif";
+const nl=t=>esc(t).replace(/\n/g,"<br>");
+const safeUrl=u=>/^https:\/\/[^\s"<>]+$/i.test(u||"")?u:"";
+const safeImg=u=>/^[\w\-\/.]+\.(png|jpe?g|webp|gif)$/i.test(u||"")&&!/\.\./.test(u)?u:"";
+const amt=(f,du)=>f=="accompagnement"?TAR[f].prix:du==12?(f=="essentiel"?ANNUEL_ESSENTIEL:TAR[f].prix*12):TAR[f].prix;
+
+/* ---------- état ---------- */
+const X={loaded:false,loading:false,err:"",abos:[],paies:[],cont:[],ap:[],tach:[],seas:[],bil:null,info:"",cat:"tous",plat:"tous",pf:"",
+ A:{abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],sel:""}};
+const hasAbo=()=>X.abos.some(live);
+const hasAcc=()=>X.abos.some(a=>a.formule=="accompagnement"&&live(a));
+const best=()=>X.abos.filter(live).sort((a,b)=>b.expire.localeCompare(a.expire))[0];
+const reset=()=>{X.loaded=false;X.loading=false;X.err="";X.abos=[];X.paies=[];X.cont=[];X.ap=[];X.tach=[];X.seas=[];X.bil=null;X.pf="";X.A={abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],sel:""}};
+
+async function xLoad(){
+ X.loading=true;X.err="";
+ try{
+  X.info=(ok(await sb.from("settings").select("v").eq("k","paiement_info").maybeSingle())||{}).v||"";
+  if(admin){
+   const[ab,pa,cl,co,ta,se,bi]=(await Promise.all([
+    sb.from("abonnements").select("*").order("expire",{ascending:false}),
+    sb.from("paiements").select("*").order("cree_le",{ascending:false}),
+    sb.from("profiles").select("id,email,nom").eq("role","client").order("nom"),
+    sb.from("contenus").select("*").order("cree_le",{ascending:false}),
+    sb.from("acc_taches").select("*").order("semaine").order("ordre"),
+    sb.from("acc_seances").select("*").order("date_heure"),
+    sb.from("acc_bilans").select("*")])).map(ok);
+   Object.assign(X.A,{abos:ab,paies:pa,cl,cont:co,tach:ta,seas:se,bil:bi});
+  }else if(me){
+   const[ab,pa,ap,co,ta,se,bi]=(await Promise.all([
+    sb.from("abonnements").select("*").eq("user_id",me.id),
+    sb.from("paiements").select("*").eq("user_id",me.id).order("cree_le",{ascending:false}),
+    sb.rpc("gsc_apercu_contenus"),
+    sb.from("contenus").select("*").order("cree_le",{ascending:false}),
+    sb.from("acc_taches").select("*").eq("user_id",me.id).order("semaine").order("ordre"),
+    sb.from("acc_seances").select("*").eq("user_id",me.id).order("date_heure"),
+    sb.from("acc_bilans").select("*").eq("user_id",me.id).maybeSingle()])).map(ok);
+   Object.assign(X,{abos:ab||[],paies:pa||[],ap:ap||[],cont:co||[],tach:ta||[],seas:se||[],bil:bi});
+  }
+ }catch(e){X.err=/does not exist|schema cache|Could not find/i.test(e.message||"")?"Module non installé : exécutez d’abord le script SQL abonnement_supabase.sql dans Supabase.":(e.message||"Erreur de chargement")}
+ X.loaded=true;X.loading=false;render();
+}
+const run=async f=>{const y=scrollY;try{await f();await xLoad()}catch(e){alert(e.message||e)}scrollTo(0,y)};
+const rr=()=>{const y=scrollY;render();scrollTo(0,y)};
+
+/* ---------- composants ---------- */
+const cards=l=>l.length?l.map(c=>{const im=safeImg(c.image),li=safeUrl(c.lien);
+ return`<details class=xd><summary><b>${esc(c.titre)}</b><span class=xt>${esc(CATS[c.categorie]||c.categorie)}</span>${c.plateforme?`<span class=xt>${esc(PLATS[c.plateforme]||c.plateforme)}</span>`:""}${c.gratuit?`<span class=xt>Gratuit</span>`:""}${c.publie?"":`<span class=xt>Masqué</span>`}</summary>${c.resume?`<p>${nl(c.resume)}</p>`:""}${im?`<img src="${esc(im)}" alt="">`:""}${c.resultat?`<div class=xr><b>Résultat observé :</b> ${nl(c.resultat)}<br><small class=mu>Résultat constaté dans un contexte précis : il n’est pas garanti pour votre activité.</small></div>`:""}${c.corps?`<div>${nl(c.corps)}</div>`:""}${li?`<p><a href="${esc(li)}" target=_blank rel="noopener noreferrer">Ouvrir la ressource ↗</a></p>`:""}</details>`}).join(""):`<p class=mu>Aucun contenu pour ce filtre.</p>`;
+
+function paySec(fs){
+ const sel=fs.includes(X.pf)?X.pf:"";
+ const cs=fs.map(k=>{const t=TAR[k];return`<div class="xo${k=="croissance"?" hot":""}"><h3>${t.nom}</h3><div class=xpx>${F(t.prix)}<small class=mu>${k=="accompagnement"?" / 30 jours":" / mois"}</small></div><p>${esc(t.txt)}</p><button class=b data-x=sel data-id=${k}>Choisir cette formule</button></div>`}).join("");
+ const form=sel?`<div class=cd><h2>Paiement : ${TAR[sel].nom}</h2><p>${esc(X.info)||"Contactez GSC Business Center pour connaître le numéro de paiement."}</p><div class=f>${sel=="accompagnement"?"":`<div><label>Durée</label><select id=x-du><option value=1>1 mois : ${F(TAR[sel].prix)}</option>${sel=="essentiel"?`<option value=12>12 mois : ${F(ANNUEL_ESSENTIEL)} (10 000 F d’économie)</option>`:""}</select></div>`}<div><label>Moyen de paiement</label><select id=x-op><option value=wave>Wave</option><option value=orange_money>Orange Money</option><option value=autre>Autre</option></select></div><div><label>Référence de la transaction</label><input id=x-rf maxlength=60></div></div><p><button class=b data-x=pay data-id=${sel}>J’ai effectué le paiement</button> <small class=mu>L’accès est activé dès que l’administrateur a vérifié le paiement.</small></p></div>`:"";
+ return`<div class=xg>${cs}</div>${form}`}
+
+const pendBanner=()=>{const p=X.paies.find(p=>p.statut=="en_attente");return p?`<div class=an style="margin:0 0 12px">⏳ Paiement en attente de validation (réf. ${esc(p.reference)}). Votre accès sera activé après vérification.</div>`:""};
+
+/* ---------- vues client ---------- */
+function aboView(){
+ const b=best();let h=`<div class=cd><h2>Espace Abonnement</h2>${pendBanner()}`;
+ if(!b){
+  const n=Object.fromEntries(X.ap.map(r=>[r.categorie,r.n])),ls=Object.keys(CATS).filter(k=>n[k]).map(k=>`<li><b>${n[k]}</b> : ${CATS[k].toLowerCase()}`).join("");
+  return h+`<p>Chaque mois : des idées de business, des produits testés, des cas concrets de e-commerce avec les chiffres réels, et des cours sur la publicité Facebook, Instagram, WhatsApp Business et TikTok.</p>${ls?`<ul>${ls}</ul>`:""}</div>${X.cont.length?`<div class=cd><h2>Aperçu gratuit</h2>${cards(X.cont)}</div>`:""}${paySec(["essentiel","croissance"])}`}
+ const d=left(b.expire);
+ h+=`<p>Formule <b>${TAR[b.formule].nom}</b> active jusqu’au <b>${fd(b.expire)}</b> (${d} jour${d>1?"s":""} restant${d>1?"s":""}).</p>${d<=7?`<p class=no><b>Votre abonnement expire bientôt : pensez à le renouveler.</b></p>`:""}`;
+ const chip=(x,id,l,on)=>`<button data-x=${x} data-id=${id} class="${on?"on":""}">${l}</button>`;
+ h+=`<div class=xch>${chip("cat","tous","Tout",X.cat=="tous")}${Object.keys(CATS).map(k=>chip("cat",k,CATS[k],X.cat==k)).join("")}</div><div class=xch>${chip("plat","tous","Toutes plateformes",X.plat=="tous")}${Object.keys(PLATS).map(k=>chip("plat",k,PLATS[k],X.plat==k)).join("")}</div></div>`;
+ h+=cards(X.cont.filter(c=>(X.cat=="tous"||c.categorie==X.cat)&&(X.plat=="tous"||c.plateforme==X.plat)));
+ h+=`<details class=xd${X.pf?" open":""}><summary><b>Renouveler ou changer de formule</b></summary>${paySec(["essentiel","croissance"])}</details>`;
+ if(X.paies.length)h+=`<div class=cd><h2>Mes paiements</h2><div class=w><table><tr><th>Date<th>Formule<th>Montant<th>Statut</tr>${X.paies.map(p=>`<tr><td>${fd(p.cree_le)}<td>${TAR[p.formule].nom}<td>${F(p.montant)}<td>${{en_attente:"En attente",paye:"Payé",refuse:"Refusé"}[p.statut]}`).join("")}</table></div></div>`;
+ return h}
+
+function accView(){
+ const a=X.abos.find(x=>x.formule=="accompagnement"),act=live(a),T=X.tach;
+ if(!act&&!T.length)return`<div class=cd><h2>Espace Accompagnement</h2>${pendBanner()}<p>Démarrez votre activité e-commerce avec un conseiller GSC pendant 30 jours : diagnostic, configuration de la plateforme, prix et marges, commandes et stock, publicité, 4 séances de suivi et un bilan final.</p><div class=xg>${SEM.map((s,i)=>`<div class=xo><h3>Semaine ${i+1}</h3><b>${s[0]}</b><p class=mu>Livrable : ${s[1]}</p></div>`).join("")}</div></div>${paySec(["accompagnement"])}`;
+ const done=T.filter(t=>t.fait).length,pc=T.length?Math.round(done/T.length*100):0;
+ let h=`<div class=cd><h2>Mon accompagnement</h2>${pendBanner()}<p>${act?`Jour <b>${Math.min(30,Math.max(1,1-left(a.debut)))}</b> sur 30 · fin le <b>${fd(a.expire)}</b>`:`Accompagnement terminé${a?" le "+fd(a.expire):""}.`}</p><div class=xp><i style="width:${pc}%"></i></div><p class=mu>${done} tâche${done>1?"s":""} sur ${T.length} réalisée${done>1?"s":""} (${pc} %)</p></div>`;
+ h+=`<div class=cd>${SEM.map((s,i)=>{const l=T.filter(t=>t.semaine==i+1);return l.length?`<div class=xw><b>Semaine ${i+1} : ${s[0]}</b><br><small class=mu>Livrable : ${s[1]}</small></div>${l.map(t=>`<div class=xk><input type=checkbox data-x=task data-id=${t.id}${t.fait?" checked":""}${act?"":" disabled"}><span>${esc(t.titre)}</span><input type=text data-x=proof data-id=${t.id} placeholder="Preuve, lien ou note" value="${esc(t.preuve||"")}" maxlength=500${act?"":" disabled"}></div>`).join("")}`:""}).join("")}</div>`;
+ if(X.seas.length)h+=`<div class=cd><h2>Mes séances de suivi</h2>${X.seas.map(s=>`<p><b>Séance ${s.numero}</b> : ${fdt(s.date_heure)} ${s.fait?`<span class=xt>Faite</span>`:safeUrl(s.lien)?`<a href="${esc(s.lien)}" target=_blank rel="noopener noreferrer">Rejoindre ↗</a>`:""}</p>`).join("")}</div>`;
+ if(X.bil&&(X.bil.bilan||X.bil.plan_action))h+=`<div class=cd><h2>Bilan final</h2>${X.bil.bilan?`<p>${nl(X.bil.bilan)}</p>`:""}${X.bil.plan_action?`<h2>Plan d’action pour les 30 jours suivants</h2><p>${nl(X.bil.plan_action)}</p>`:""}</div>`;
+ if(!act)h+=`<details class=xd${X.pf?" open":""}><summary><b>Refaire un accompagnement</b></summary>${paySec(["accompagnement"])}</details>`;
+ return h}
+
+/* ---------- vues administrateur ---------- */
+const nm=id=>{const c=X.A.cl.find(c=>c.id==id);return c?`${esc(c.nom||"")}<br><small class=mu>${esc(c.email)}</small>`:"(compte supprimé)"};
+const ab_=(x,id,l,extra="")=>`<button class="b xs" data-x=${x} data-id=${id} ${extra}>${l}</button>`;
+const opts=o=>Object.keys(o).map(k=>`<option value=${k}>${esc(o[k])}</option>`).join("");
+
+function gaboView(){
+ const A=X.A,pend=A.paies.filter(p=>p.statut=="en_attente"),mois=today().slice(0,7),
+ enc=A.paies.filter(p=>p.statut=="paye"&&(p.traite_le||"").slice(0,7)==mois).reduce((s,p)=>s+p.montant,0),
+ na=A.abos.filter(a=>a.formule!="accompagnement"&&live(a)).length,nc=A.abos.filter(a=>a.formule=="accompagnement"&&live(a)).length;
+ return`<div class=g>${K("Abonnés actifs",na)}${K("Accompagnés actifs",nc)}${K("Paiements à valider",pend.length)}${K("Encaissé ce mois",F(enc))}</div>
+ <div class=cd><h2>Paiements à valider</h2><div class=w><table><tr><th>Client<th>Formule<th>Montant<th>Moyen<th>Référence<th>Date<th></tr>${pend.map(p=>`<tr><td>${nm(p.user_id)}<td>${TAR[p.formule].nom}${p.duree_mois==12?" (12 mois)":""}<td>${F(p.montant)}<td>${esc(p.operateur)}<td>${esc(p.reference)}<td>${fd(p.cree_le)}<td>${ab_("valid",p.id,"Valider","data-ok=1")} ${ab_("valid",p.id,"Refuser","data-ok=0")}`).join("")||"<tr><td colspan=7 class=mu>Aucun paiement en attente."}</table></div><p class=mu>Validez uniquement après avoir vérifié la réception de l’argent sur Wave ou Orange Money.</p></div>
+ <div class=cd><h2>Abonnements</h2><div class=w><table><tr><th>Client<th>Formule<th>Début<th>Expiration<th>Statut<th></tr>${A.abos.map(a=>`<tr><td>${nm(a.user_id)}<td>${TAR[a.formule].nom}<td>${fd(a.debut)}<td>${fd(a.expire)}<td class=${live(a)?"ok":"no"}>${st(a)}<td>${ab_("prol",a.id,"+30 jours")} ${ab_("susp",a.id,a.statut=="actif"?"Suspendre":"Réactiver")}`).join("")||"<tr><td colspan=6 class=mu>Aucun abonnement pour l’instant."}</table></div></div>
+ <div class=cd><h2>Activer manuellement</h2><div class=f><div><label>Client</label><select id=x-cl>${A.cl.map(c=>`<option value=${c.id}>${esc(c.nom||c.email)} (${esc(c.email)})`).join("")}</select></div><div><label>Formule</label><select id=x-fm>${opts({essentiel:"Essentiel",croissance:"Croissance",accompagnement:"Accompagnement 30 jours"})}</select></div><div><label>Durée (jours)</label><input id=x-jr type=number value=30 min=1 max=400></div></div><p><button class=b data-x=act>Activer / prolonger</button></p></div>
+ <div class=cd><h2>Instructions de paiement affichées aux clients</h2><textarea id=x-inf rows=3 placeholder="Ex. : Envoyez le montant par Wave ou Orange Money au numéro … au nom de …, puis indiquez la référence de la transaction.">${esc(X.info)}</textarea><p><button class=b data-x=info>Enregistrer</button></p></div>`}
+
+function gconView(){
+ return`<div class=cd><h2>Ajouter une fiche</h2><div class=f><div><label>Catégorie</label><select id=x-ct>${opts(CATS)}</select></div><div><label>Plateforme (optionnel)</label><select id=x-cp><option value="">Aucune</option>${opts(PLATS)}</select></div><div><label>Titre</label><input id=x-ti maxlength=150></div></div><br><label class=mu>Résumé</label><textarea id=x-re rows=2></textarea><br><br><label class=mu>Contenu détaillé</label><textarea id=x-co rows=5></textarea><br><br><label class=mu>Résultat observé, chiffres réels (ventes, marge, ROAS…) : indiquez aussi les échecs</label><textarea id=x-rs rows=2></textarea><div class=f style="margin-top:10px"><div><label>Lien https:// (vidéo, article)</label><input id=x-li></div><div><label>Image du site (ex. preuves/cas1.png)</label><input id=x-im></div><div><label><input id=x-gr type=checkbox style="width:auto;min-width:0"> Visible gratuitement (aperçu)</label></div></div><p><button class=b data-x=cadd>Publier la fiche</button></p></div>
+ <div class=cd><h2>Fiches (${X.A.cont.length})</h2>${X.A.cont.map(c=>`${cards([c])}<p style="margin:-4px 0 12px">${ab_("cpub",c.id,c.publie?"Masquer":"Publier")} ${ab_("cdel",c.id,"Supprimer")}</p>`).join("")||"<p class=mu>Aucune fiche pour l’instant.</p>"}</div>`}
+
+function gaccView(){
+ const A=X.A,ac=A.abos.filter(a=>a.formule=="accompagnement");
+ let h=`<div class=cd><h2>Clients en accompagnement</h2><div class=w><table><tr><th>Client<th>Début<th>Fin<th>Statut<th>Tâches<th></tr>${ac.map(a=>{const t=A.tach.filter(x=>x.user_id==a.user_id);return`<tr><td>${nm(a.user_id)}<td>${fd(a.debut)}<td>${fd(a.expire)}<td class=${live(a)?"ok":"no"}>${st(a)}<td>${t.filter(x=>x.fait).length} / ${t.length}<td>${ab_("open",a.user_id,"Ouvrir")}`}).join("")||"<tr><td colspan=6 class=mu>Aucun accompagnement : il démarre à la validation d’un paiement."}</table></div></div>`;
+ const u=A.sel;if(!u||!ac.some(a=>a.user_id==u))return h;
+ const T=A.tach.filter(t=>t.user_id==u),S2=A.seas.filter(s=>s.user_id==u),B=A.bil.find(b=>b.user_id==u)||{};
+ h+=`<div class=cd><h2>Suivi : ${nm(u)} ${ab_("close","x","Fermer")}</h2>${SEM.map((s,i)=>{const l=T.filter(t=>t.semaine==i+1);return l.length?`<div class=xw><b>Semaine ${i+1} : ${s[0]}</b></div>${l.map(t=>`<div class=xk><input type=checkbox data-x=atask data-id=${t.id}${t.fait?" checked":""}><span>${esc(t.titre)}</span>${t.preuve?`<small class=mu>Preuve : ${esc(t.preuve)}</small>`:""}</div>`).join("")}`:""}).join("")}</div>
+ <div class=cd><h2>Séances</h2>${S2.map(s=>`<p>Séance ${s.numero} : ${fdt(s.date_heure)} ${s.fait?"✔":""} ${ab_("sfait",s.id,s.fait?"Marquer à faire":"Marquer faite")} ${ab_("sdel",s.id,"Supprimer")}</p>`).join("")}<div class=f><div><label>N°</label><input id=x-sn type=number min=1 max=8 value=${S2.length+1}></div><div><label>Date et heure</label><input id=x-sd type=datetime-local></div><div><label>Lien Meet / Zoom (https://)</label><input id=x-sl></div></div><p><button class=b data-x=aseance>Ajouter la séance</button></p></div>
+ <div class=cd><h2>Bilan final</h2><label class=mu>Bilan</label><textarea id=x-bi rows=4>${esc(B.bilan||"")}</textarea><br><br><label class=mu>Plan d’action pour les 30 jours suivants</label><textarea id=x-pl rows=4>${esc(B.plan_action||"")}</textarea><p><button class=b data-x=abil>Enregistrer le bilan</button></p></div>`;
+ return h}
+
+/* ---------- branchement sur app.js ---------- */
+const _view=view;
+view=function(){
+ if(me&&MINE.includes(tab)){
+  if(X.err)return`<div class=cd><h2>Information</h2><p class=no>${esc(X.err)}</p></div>`;
+  if(!X.loaded)return`<div class=cd><p class=mu>Chargement…</p></div>`;
+  if(tab=="abo")return aboView();if(tab=="acc")return accView();
+  if(admin){if(tab=="gabo")return gaboView();if(tab=="gcon")return gconView();if(tab=="gacc")return gaccView()}
+ }
+ return _view()};
+
+render=function(){
+ if(!me){reset();$("#app").innerHTML=authView();return}
+ if(!X.loaded&&!X.loading)xLoad();
+ const tabs=[...(admin?[["admin","Administration"],["gabo","Abonnements"],["gcon","Contenus"],["gacc","Accompagnés"]]:[]),
+  ...(S?[["dash","Tableau de bord"],["obj","Objectif"],["prod","Produits"],["cmd","Commandes"],["camp","Campagnes"],["ref","Référence KPI"],["abo",(hasAbo()?"":"🔒 ")+"Espace Abonnement"],["acc",(hasAcc()||X.tach.length?"":"🔒 ")+"Espace Accompagnement"]]:[])];
+ if(!tabs.some(t=>t[0]==tab))tab=tabs.length?tabs[0][0]:"dash";
+ $("#app").innerHTML=`<header><img src="${LOGO}" alt="GSC Business Center"><div><b>Plateforme de gestion e-commerce</b><small>${S?esc(S.boutique||S.nom):"Bienvenue"}</small></div><span class=r>${admin?"Administrateur":"Espace client"}</span><button class=b id=lo style="background:var(--mg)">Déconnexion</button></header>${ann?`<div class=an>📣 ${esc(ann)}</div>`:""}<nav>${tabs.map(t=>`<button data-tab=${t[0]} class="${t[0]==tab?"on":""}">${t[1]}</button>`).join("")}</nav><main>${view()}<p class=mu id=st>${esc(note)}</p></main>`};
+
+/* ---------- actions ---------- */
+const val=i=>($("#"+i)||{}).value||"";
+document.addEventListener("click",async e=>{
+ const tb=e.target.closest("[data-tab]");
+ if(tb&&MINE.includes(tb.dataset.tab)&&!X.loading){xLoad();return}
+ const t=e.target.closest("[data-x]");if(!t||/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))return;
+ const a=t.dataset.x,id=t.dataset.id,A=X.A;
+ if(a=="cat"){X.cat=id;rr()}else if(a=="plat"){X.plat=id;rr()}else if(a=="sel"){X.pf=id;rr()}
+ else if(a=="pay"){const du=id=="accompagnement"?1:+(val("x-du")||1),rf=val("x-rf").trim();
+  if(rf.length<3)return alert("Indiquez la référence de la transaction.");
+  t.disabled=true;X.pf="";await run(async()=>ok(await sb.from("paiements").insert({user_id:me.id,formule:id,duree_mois:du,montant:amt(id,du),operateur:val("x-op")||"autre",reference:rf.slice(0,60)})))}
+ else if(a=="valid"){const yes=t.dataset.ok=="1";if(yes&&!confirm("Confirmez-vous avoir bien reçu ce paiement ?"))return;run(async()=>ok(await sb.rpc("admin_valider_paiement",{p_id:id,p_ok:yes})))}
+ else if(a=="prol"){const x=A.abos.find(x=>x.id==id);if(x)run(async()=>ok(await sb.from("abonnements").update({expire:addDays(x.expire>today()?x.expire:today(),30)}).eq("id",id)))}
+ else if(a=="susp"){const x=A.abos.find(x=>x.id==id);if(x)run(async()=>ok(await sb.from("abonnements").update({statut:x.statut=="actif"?"suspendu":"actif"}).eq("id",id)))}
+ else if(a=="act"){const u=val("x-cl");if(!u)return alert("Choisissez un client.");run(async()=>ok(await sb.rpc("admin_activer",{p_uid:u,p_formule:val("x-fm"),p_jours:Math.min(400,Math.max(1,+val("x-jr")||30))})))}
+ else if(a=="info"){run(async()=>ok(await sb.from("settings").upsert({k:"paiement_info",v:val("x-inf").slice(0,500)})))}
+ else if(a=="cadd"){const r={categorie:val("x-ct"),plateforme:val("x-cp")||null,titre:val("x-ti").trim(),resume:val("x-re").trim()||null,corps:val("x-co").trim()||null,resultat:val("x-rs").trim()||null,lien:val("x-li").trim()||null,image:val("x-im").trim()||null,gratuit:$("#x-gr").checked,publie:true};
+  if(!r.titre)return alert("Le titre est obligatoire.");
+  if(r.lien&&!safeUrl(r.lien))return alert("Le lien doit commencer par https://");
+  if(r.image&&!safeImg(r.image))return alert("L’image doit être un fichier du site, par exemple preuves/cas1.png");
+  run(async()=>ok(await sb.from("contenus").insert(r)))}
+ else if(a=="cpub"){const c=A.cont.find(c=>c.id==id);if(c)run(async()=>ok(await sb.from("contenus").update({publie:!c.publie}).eq("id",id)))}
+ else if(a=="cdel"){if(confirm("Supprimer cette fiche ?"))run(async()=>ok(await sb.from("contenus").delete().eq("id",id)))}
+ else if(a=="open"){A.sel=id;rr()}else if(a=="close"){A.sel="";rr()}
+ else if(a=="aseance"){const d=val("x-sd");if(!d)return alert("Indiquez la date et l’heure.");const l=val("x-sl").trim();if(l&&!safeUrl(l))return alert("Le lien doit commencer par https://");
+  run(async()=>ok(await sb.from("acc_seances").insert({user_id:A.sel,numero:+val("x-sn")||1,date_heure:new Date(d).toISOString(),lien:l||null})))}
+ else if(a=="sfait"){const s=A.seas.find(s=>s.id==id);if(s)run(async()=>ok(await sb.from("acc_seances").update({fait:!s.fait}).eq("id",id)))}
+ else if(a=="sdel"){run(async()=>ok(await sb.from("acc_seances").delete().eq("id",id)))}
+ else if(a=="abil"){run(async()=>ok(await sb.from("acc_bilans").upsert({user_id:A.sel,bilan:val("x-bi").trim()||null,plan_action:val("x-pl").trim()||null,maj:new Date().toISOString()})))}
+});
+document.addEventListener("change",async e=>{
+ const t=e.target,a=t.dataset&&t.dataset.x;if(!a)return;
+ if(a=="task"||a=="proof"){const k=X.tach.find(k=>k.id==t.dataset.id);if(!k)return;
+  const fait=a=="task"?t.checked:k.fait,pr=a=="proof"?t.value:(k.preuve||"");
+  run(async()=>ok(await sb.rpc("acc_maj_tache",{p_id:k.id,p_fait:fait,p_preuve:pr})))}
+ else if(a=="atask"){run(async()=>ok(await sb.from("acc_taches").update({fait:t.checked,fait_le:t.checked?new Date().toISOString():null}).eq("id",t.dataset.id)))}
+});
+
+if(me)render();
+})();
