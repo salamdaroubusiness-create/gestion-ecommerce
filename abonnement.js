@@ -32,6 +32,7 @@ sty.textContent=`.xg{display:grid;grid-template-columns:repeat(auto-fit,minmax(2
 .xk{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
 .xk input[type=checkbox]{width:auto;min-width:0}.xk input[type=text]{flex:1;min-width:140px}
 .xs{padding:4px 9px}
+.xlock{color:var(--mu)!important;opacity:.55;text-align:center}
 .xe input,.xe select,.xe textarea{min-width:0}.xe td{vertical-align:top;padding:5px 4px}`;
 document.head.appendChild(sty);
 
@@ -61,7 +62,7 @@ const reset=()=>{X.suivi=[];X.suiviOk=false;X.ed=null;X.edDirty=false;X.loaded=f
 
 const edFrom=l=>[...l].sort((a,b)=>(!a.formation-!b.formation)||(a.formation||"").localeCompare(b.formation||"","fr")||(a.module||"").localeCompare(b.module||"","fr")||(a.ordre||0)-(b.ordre||0)).map(c=>({id:c.id,formation:c.formation||"",module:c.module||"",ordre:c.ordre||1,type:c.type||"fiche",titre:c.titre||"",lien:c.lien||"",resume:c.resume||"",audience:c.audience||"abonnes",fichier:c.fichier||null,fichier_nom:c.fichier_nom||null}));
 async function xLoad(){
- X.loading=true;X.err="";
+ X.loading=true;X.err="";X.noMod=false;
  try{
   try{X.off=ok(await sb.from("offres").select("*"))||[];X.offOk=true;X.off.forEach(r=>{if(r.formule=="essentiel_annuel")ANNUEL_ESSENTIEL=r.prix;else if(TAR[r.formule])TAR[r.formule].prix=r.prix})}catch(e){X.offOk=false}
   X.info=(ok(await sb.from("settings").select("v").eq("k","paiement_info").maybeSingle())||{}).v||"";
@@ -90,7 +91,7 @@ async function xLoad(){
    try{X.suivi=(ok(await sb.from("contenus_suivi").select("contenu_id").eq("user_id",me.id))||[]).map(r=>r.contenu_id);X.suiviOk=true}catch(e){X.suivi=[];X.suiviOk=false}
   }
  }catch(e){X.err=/does not exist|schema cache|Could not find/i.test(e.message||"")?"Module non installé : exécutez d’abord le script SQL abonnement_supabase.sql dans Supabase.":(e.message||"Erreur de chargement")}
- X.loaded=true;X.loading=false;render();
+ X.noMod=/^Module non install/.test(X.err);X.loaded=true;X.loading=false;render();
 }
 const run=async f=>{const y=scrollY;try{await f();await xLoad()}catch(e){alert(e.message||e)}scrollTo(0,y)};
 const rr=()=>{const y=scrollY;render();scrollTo(0,y)};
@@ -202,6 +203,21 @@ function gaccView(){
  <div class=cd><h2>Bilan final</h2><label class=mu>Bilan</label><textarea id=x-bi rows=4>${esc(B.bilan||"")}</textarea><br><br><label class=mu>Plan d’action pour les 30 jours suivants</label><textarea id=x-pl rows=4>${esc(B.plan_action||"")}</textarea><p><button class=b data-x=abil>Enregistrer le bilan</button></p></div>`;
  return h}
 
+/* ---------- réservation des calculs aux abonnés ---------- */
+const paid=()=>admin||(X.loaded&&(hasAbo()||X.noMod));
+const KPI_LOCK=["Investissement","CA potentiel","Bénéfice potentiel"];
+function lock(){
+ if(!me||paid())return;
+ const root=$("#app"),main=root&&root.querySelector("main");if(!main)return;
+ root.querySelectorAll("td.c").forEach(td=>{td.textContent="🔒";td.classList.add("xlock")});
+ root.querySelectorAll("th.c").forEach(th=>th.classList.add("xlock"));
+ root.querySelectorAll(".k").forEach(k=>{const sm=k.querySelector("small"),b=k.querySelector("b");if(sm&&b&&KPI_LOCK.includes(sm.textContent.trim())){b.textContent="🔒";b.classList.add("xlock")}});
+ root.querySelectorAll(".cd").forEach(c=>{const h=c.querySelector("h2"),t=h?h.textContent.trim():"";
+  if(t=="Bénéfice par produit")c.innerHTML="<h2>Bénéfice par produit</h2><p class=mu>🔒 Réservé aux abonnés.</p>";
+  if(t=="Alertes")c.querySelectorAll("p").forEach(p=>{if(/Marge nette négative/.test(p.textContent))p.remove()})});
+ main.querySelectorAll("p.mu").forEach(p=>{if(/^(Prix de vente =|Repères :)/.test(p.textContent.trim()))p.remove()});
+ if(["dash","prod","camp"].includes(tab))main.insertAdjacentHTML("afterbegin",`<div class=an style="margin:0 0 12px">🔒 Les calculs (marges, seuil de rentabilité, indicateurs publicitaires, bénéfices) sont réservés aux abonnés. <button class="b xs" data-tab=abo>Voir les offres</button></div>`)}
+
 /* ---------- branchement sur app.js ---------- */
 function prixCard(){
  if(!X.loaded)return"";
@@ -211,6 +227,9 @@ function prixCard(){
 const _view=view;
 view=function(){
  if(me&&admin&&tab=="admin")return _view()+prixCard();
+ if(me&&tab=="ref"&&S){
+  if(!X.loaded)return`<div class=cd><p class=mu>Chargement…</p></div>`;
+  if(!paid())return`<div class=cd><h2>🔒 Référence KPI</h2>${pendBanner()}<p>La référence des indicateurs (formules et repères pour le CTR, le CPC, le CPM, le CPA, le ROAS et le seuil de rentabilité) est réservée aux abonnés : abonnement mensuel ou accompagnement.</p></div>${paySec(["essentiel","croissance","accompagnement"])}`}
  if(me&&MINE.includes(tab)){
   if(X.err)return`<div class=cd><h2>Information</h2><p class=no>${esc(X.err)}</p></div>`;
   if(!X.loaded)return`<div class=cd><p class=mu>Chargement…</p></div>`;
@@ -223,9 +242,9 @@ render=function(){
  if(!me){reset();$("#app").innerHTML=authView();return}
  if(!X.loaded&&!X.loading)xLoad();
  const tabs=[...(admin?[["admin","Administration"],["goff","Offres"],["gabo","Abonnements"],["gcon","Contenus"],["gacc","Accompagnés"]]:[]),
-  ...(S?[["dash","Tableau de bord"],["obj","Objectif"],["prod","Produits"],["cmd","Commandes"],["camp","Campagnes"],["ref","Référence KPI"],["abo",(hasAbo()?"":"🔒 ")+"Espace Abonnement"],["acc",(hasAcc()||X.tach.length?"":"🔒 ")+"Espace Accompagnement"]]:[])];
+  ...(S?[["dash","Tableau de bord"],["obj","Objectif"],["prod","Produits"],["cmd","Commandes"],["camp","Campagnes"],["ref",(paid()?"":"🔒 ")+"Référence KPI"],["abo",(hasAbo()?"":"🔒 ")+"Espace Abonnement"],["acc",(hasAcc()||X.tach.length?"":"🔒 ")+"Espace Accompagnement"]]:[])];
  if(!tabs.some(t=>t[0]==tab))tab=tabs.length?tabs[0][0]:"dash";
- $("#app").innerHTML=`<header><img src="${LOGO}" alt="GSC Business Center"><div><b>Plateforme de gestion e-commerce</b><small>${S?esc(S.boutique||S.nom):"Bienvenue"}</small></div><span class=r>${admin?"Administrateur":"Espace client"}</span><button class=b id=lo style="background:var(--mg)">Déconnexion</button></header>${ann?`<div class=an>📣 ${esc(ann)}</div>`:""}<nav>${tabs.map(t=>`<button data-tab=${t[0]} class="${t[0]==tab?"on":""}">${t[1]}</button>`).join("")}</nav><main>${view()}<p class=mu id=st>${esc(note)}</p></main>`};
+ $("#app").innerHTML=`<header><img src="${LOGO}" alt="GSC Business Center"><div><b>Plateforme de gestion e-commerce</b><small>${S?esc(S.boutique||S.nom):"Bienvenue"}</small></div><span class=r>${admin?"Administrateur":"Espace client"}</span><button class=b id=lo style="background:var(--mg)">Déconnexion</button></header>${ann?`<div class=an>📣 ${esc(ann)}</div>`:""}<nav>${tabs.map(t=>`<button data-tab=${t[0]} class="${t[0]==tab?"on":""}">${t[1]}</button>`).join("")}</nav><main>${view()}<p class=mu id=st>${esc(note)}</p></main>`;lock()};
 
 /* ---------- actions ---------- */
 const val=i=>($("#"+i)||{}).value||"";
