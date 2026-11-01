@@ -32,6 +32,8 @@ sty.textContent=`.xg{display:grid;grid-template-columns:repeat(auto-fit,minmax(2
 .xk{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
 .xk input[type=checkbox]{width:auto;min-width:0}.xk input[type=text]{flex:1;min-width:140px}
 .xs{padding:4px 9px}
+#x-print{display:none}
+@media print{body>*:not(#x-print){display:none!important}body{background:#fff!important}#x-print{display:block!important;background:#fff;color:#000;padding:16px;font:14px/1.5 Arial,sans-serif}}
 .xlock{color:var(--mu)!important;opacity:.55;text-align:center}
 .xe input,.xe select,.xe textarea{min-width:0}.xe td{vertical-align:top;padding:5px 4px}`;
 document.head.appendChild(sty);
@@ -53,7 +55,7 @@ const safeImg=u=>/^[\w\-\/.]+\.(png|jpe?g|webp|gif)$/i.test(u||"")&&!/\.\./.test
 const amt=(f,du)=>f=="accompagnement"?TAR[f].prix:du==12?(f=="essentiel"?ANNUEL_ESSENTIEL:TAR[f].prix*12):TAR[f].prix;
 
 /* ---------- état ---------- */
-const X={off:[],offOk:false,loaded:false,loading:false,err:"",abos:[],paies:[],cont:[],ap:[],tach:[],seas:[],bil:null,info:"",cat:"tous",plat:"tous",typ:"tous",pf:"",suivi:[],suiviOk:false,ed:null,edDirty:false,
+const X={off:[],offOk:false,loaded:false,loading:false,err:"",abos:[],paies:[],cont:[],ap:[],tach:[],seas:[],bil:null,info:"",cat:"tous",plat:"tous",typ:"tous",pf:"",suivi:[],suiviOk:false,ed:null,edDirty:false,cedit:"",
  A:{abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],suivi:[],sel:""}};
 const hasAbo=()=>X.abos.some(live);
 const hasAcc=()=>X.abos.some(a=>a.formule=="accompagnement"&&live(a));
@@ -95,6 +97,16 @@ async function xLoad(){
 }
 const run=async f=>{const y=scrollY;try{await f();await xLoad()}catch(e){alert(e.message||e)}scrollTo(0,y)};
 const rr=()=>{const y=scrollY;render();scrollTo(0,y)};
+
+/* ---------- export / téléchargement des fiches ---------- */
+const dlFile=(name,mime,txt,bom)=>{const b=new Blob([bom?"\ufeff"+txt:txt],{type:mime+";charset=utf-8"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500)};
+const slug=t=>String(t||"fiche").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^\w]+/g,"-").replace(/^-+|-+$/g,"").slice(0,60)||"fiche";
+const ficheMeta=c=>[TYPES[c.type]||c.type,c.categorie&&CATS[c.categorie],c.plateforme&&PLATS[c.plateforme],"Audience : "+(AUD[c.audience]||c.audience),c.formation&&"Formation : "+c.formation,c.module&&"Module : "+c.module].filter(Boolean).join(" · ");
+const ficheText=c=>[c.titre,"=".repeat(Math.min(60,c.titre.length)),ficheMeta(c),c.resume&&"DESCRIPTION\n"+c.resume,c.corps&&"CONTENU\n"+c.corps,c.resultat&&"RÉSULTAT OBSERVÉ\n"+c.resultat+"\n(Résultat constaté dans un contexte précis : non garanti.)",c.lien&&"LIEN : "+c.lien,c.fichier_nom&&"FICHIER JOINT : "+c.fichier_nom].filter(Boolean).join("\n\n")+"\n";
+const ficheHtml=c=>`<h1 style="color:#29235C">${esc(c.titre)}</h1><p style="color:#6B7280">${esc(ficheMeta(c))}</p>${c.resume?`<h2>Description</h2><p>${nl(c.resume)}</p>`:""}${c.corps?`<h2>Contenu</h2><p>${nl(c.corps)}</p>`:""}${c.resultat?`<h2>Résultat observé</h2><p>${nl(c.resultat)}</p><p><i>Résultat constaté dans un contexte précis : non garanti pour votre activité.</i></p>`:""}${c.lien?`<p>Lien : ${esc(c.lien)}</p>`:""}${c.fichier_nom?`<p>Fichier joint : ${esc(c.fichier_nom)}</p>`:""}<hr><p style="color:#6B7280;font-size:12px">GSC Business Center</p>`;
+const ficheWord=c=>`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${esc(c.titre)}</title></head><body style="font-family:Arial,sans-serif">${ficheHtml(c)}</body></html>`;
+const fichePrint=c=>{let p=$("#x-print");if(!p){p=document.createElement("div");p.id="x-print";document.body.appendChild(p)}p.innerHTML=ficheHtml(c);const clear=()=>{p.innerHTML="";window.removeEventListener("afterprint",clear)};window.addEventListener("afterprint",clear);window.print()};
+const csvAll=l=>{const q=v=>{let t=String(v==null?"":v);if(/^[=+\-@]/.test(t))t="'"+t;return'"'+t.replace(/"/g,'""')+'"'};return[["Formation","Module","N°","Type","Titre","Catégorie","Plateforme","Audience","Publié","Lien","Fichier joint","Description","Contenu détaillé","Résultat observé"],...l.map(c=>[c.formation,c.module,c.ordre,TYPES[c.type]||c.type,c.titre,CATS[c.categorie]||"",PLATS[c.plateforme]||"",AUD[c.audience]||c.audience,c.publie?"Oui":"Non",c.lien,c.fichier_nom,c.resume,c.corps,c.resultat])].map(r=>r.map(q).join(";")).join("\r\n")};
 
 /* ---------- composants ---------- */
 const cards=l=>l.length?l.map(c=>{const im=safeImg(c.image),li=safeLink(c.lien),ext=!!safeUrl(c.lien);
@@ -187,8 +199,10 @@ function gconView(){
  <div class=cd><h2>Progression des clients</h2>${X.suiviOk?`<div class=w><table><tr><th>Client<th>Formation<th>Terminés<th><th>%</tr>${prog.map(p=>{const pc=Math.round(p.d/p.n*100);return`<tr><td>${nm(p.c.id)}<td>${p.f?esc(p.f):"Ressources"}<td>${p.d} / ${p.n}<td style="min-width:180px"><div class=xp><i style="width:${pc}%"></i></div><td>${pc} %`}).join("")||"<tr><td colspan=5 class=mu>Aucune progression pour l’instant."}</table></div>`:`<p class=no>Module non installé : exécutez contenus_modele_supabase.sql dans Supabase.</p>`}</div>
  ${gconOld()}`}
 function gconOld(){
- return`<div class=cd><h2>Ajouter une fiche</h2><div class=f><div><label>Type</label><select id=x-ty>${opts(TYPES)}</select></div><div><label>Audience</label><select id=x-au>${opts(AUD)}</select></div><div><label>Catégorie (optionnel)</label><select id=x-ct><option value="">Aucune</option>${opts(CATS)}</select></div><div><label>Plateforme (optionnel)</label><select id=x-cp><option value="">Aucune</option>${opts(PLATS)}</select></div><div><label>Titre</label><input id=x-ti maxlength=150></div></div><br><label class=mu>Description</label><textarea id=x-re rows=2></textarea><br><br><label class=mu>Contenu détaillé</label><textarea id=x-co rows=5></textarea><br><br><label class=mu>Résultat observé, chiffres réels (ventes, marge, ROAS…) : indiquez aussi les échecs</label><textarea id=x-rs rows=2></textarea><div class=f style="margin-top:10px"><div><label>Lien https:// ou fichier du site (ex. fichiers/guide.pdf)</label><input id=x-li></div><div><label>Formation (optionnel)</label><input id=x-fo maxlength=80></div><div><label>Module (optionnel : organise formations et vidéos)</label><input id=x-mo maxlength=80></div><div><label>Ordre dans le module</label><input id=x-or type=number value=1 min=1></div><div><label>Image du site (ex. preuves/cas1.png)</label><input id=x-im></div></div><p><button class=b data-x=cadd>Publier la fiche</button></p></div>
- <div class=cd><h2>Fiches (${X.A.cont.length})</h2>${X.A.cont.map(c=>`${cards([c])}<p style="margin:-4px 0 12px">${ab_("cpub",c.id,c.publie?"Masquer":"Publier")} ${ab_("cdel",c.id,"Supprimer")}</p>`).join("")||"<p class=mu>Aucune fiche pour l’instant.</p>"}</div>`}
+ const E=X.A.cont.find(c=>c.id==X.cedit)||null,v=f=>E&&E[f]!=null?esc(E[f]):"",
+ so=(o,cur,blank)=>(blank?`<option value="">Aucune</option>`:"")+Object.keys(o).map(k=>`<option value=${k}${k==cur?" selected":""}>${esc(o[k])}</option>`).join("");
+ return`<div class=cd id=x-form><h2>${E?"Modifier la fiche":"Ajouter une fiche"}</h2>${E?`<p class=mu>Vous modifiez : <b>${esc(E.titre)}</b></p>`:""}<div class=f><div><label>Type</label><select id=x-ty>${so(TYPES,E&&E.type)}</select></div><div><label>Audience</label><select id=x-au>${so(AUD,E&&E.audience)}</select></div><div><label>Catégorie (optionnel)</label><select id=x-ct>${so(CATS,E&&E.categorie,1)}</select></div><div><label>Plateforme (optionnel)</label><select id=x-cp>${so(PLATS,E&&E.plateforme,1)}</select></div><div><label>Titre</label><input id=x-ti maxlength=150 value="${v("titre")}"></div></div><br><label class=mu>Description</label><textarea id=x-re rows=2>${v("resume")}</textarea><br><br><label class=mu>Contenu détaillé</label><textarea id=x-co rows=5>${v("corps")}</textarea><br><br><label class=mu>Résultat observé, chiffres réels (ventes, marge, ROAS…) : indiquez aussi les échecs</label><textarea id=x-rs rows=2>${v("resultat")}</textarea><div class=f style="margin-top:10px"><div><label>Lien https:// ou fichier du site (ex. fichiers/guide.pdf)</label><input id=x-li value="${v("lien")}"></div><div><label>Formation (optionnel)</label><input id=x-fo maxlength=80 value="${v("formation")}"></div><div><label>Module (optionnel : organise formations et vidéos)</label><input id=x-mo maxlength=80 value="${v("module")}"></div><div><label>Ordre dans le module</label><input id=x-or type=number value=${E?esc(E.ordre||1):1} min=1></div><div><label>Image du site (ex. preuves/cas1.png)</label><input id=x-im value="${v("image")}"></div></div><p>${E?`<button class=b data-x=csave>Enregistrer les modifications</button> <button class=b data-x=ccancel style="background:var(--mu)">Annuler</button>`:`<button class=b data-x=cadd>Publier la fiche</button>`}</p></div>
+ <div class=cd><h2>Fiches (${X.A.cont.length})</h2><p>${ab_("cexp","tout","Exporter toutes les fiches (CSV pour Excel)")}</p>${X.A.cont.map(c=>`${cards([c])}<p style="margin:-4px 0 12px">${ab_("cedit",c.id,"Modifier")} ${ab_("cpub",c.id,c.publie?"Masquer":"Publier")} ${ab_("cdw",c.id,"Télécharger (Word)")} ${ab_("cdt",c.id,"Texte (.txt)")} ${ab_("cpdf",c.id,"PDF / Imprimer")} ${ab_("cdel",c.id,"Supprimer")}</p>`).join("")||"<p class=mu>Aucune fiche pour l’instant.</p>"}</div>`}
 
 function ovAcc(){const A=X.A;
  return`<div class=cd><h2>Tous les clients : accompagnés ou non</h2><div class=w><table><tr><th>Client<th>Accompagné<th>Offre<th>Début<th>Durée (mois)<th>Fin<th>Paiement unique<th>Montant<th>Message visible par le client<th></tr>${A.cl.map(c=>{const a=A.abos.find(x=>x.user_id==c.id&&x.formule=="accompagnement"),pa=A.paies.filter(x=>x.user_id==c.id&&x.formule=="accompagnement"),p=pa.find(x=>x.statut=="paye")||pa.find(x=>x.statut=="en_attente"),ps=p?{en_attente:"En attente",paye:"Payé"}[p.statut]:"—";
@@ -281,6 +295,17 @@ document.addEventListener("click",async e=>{
   if(r.lien&&!safeLink(r.lien))return alert("Le lien doit commencer par https:// ou être un fichier du site (ex. fichiers/guide.pdf).");
   if(r.image&&!safeImg(r.image))return alert("L’image doit être un fichier du site, par exemple preuves/cas1.png");
   run(async()=>ok(await sb.from("contenus").insert(r)))}
+ else if(a=="cedit"){if(X.edDirty)return alert("Enregistrez d’abord les modifications du tableau (bouton « Enregistrer les contenus »).");X.cedit=id;rr();const f=$("#x-form");if(f&&f.scrollIntoView)f.scrollIntoView({behavior:"smooth"})}
+ else if(a=="ccancel"){X.cedit="";rr()}
+ else if(a=="csave"){if(X.edDirty)return alert("Enregistrez d’abord les modifications du tableau (bouton « Enregistrer les contenus »).");
+  const r={formation:val("x-fo").trim()||null,type:val("x-ty")||"fiche",audience:val("x-au")||"abonnes",module:val("x-mo").trim()||null,ordre:Math.max(1,+val("x-or")||1),categorie:val("x-ct")||null,plateforme:val("x-cp")||null,titre:val("x-ti").trim(),resume:val("x-re").trim()||null,corps:val("x-co").trim()||null,resultat:val("x-rs").trim()||null,lien:val("x-li").trim()||null,image:val("x-im").trim()||null,gratuit:val("x-au")=="tous"};
+  if(!r.titre)return alert("Le titre est obligatoire.");
+  if(r.lien&&!safeLink(r.lien))return alert("Le lien doit commencer par https:// ou être un fichier du site (ex. fichiers/guide.pdf).");
+  if(r.image&&!safeImg(r.image))return alert("L’image doit être un fichier du site, par exemple preuves/cas1.png");
+  const cid=X.cedit;run(async()=>{ok(await sb.from("contenus").update(r).eq("id",cid));X.cedit=""})}
+ else if(a=="cdw"||a=="cdt"||a=="cpdf"){const c=A.cont.find(c=>c.id==id);if(!c)return;
+  if(a=="cdw")dlFile(slug(c.titre)+".doc","application/msword",ficheWord(c));else if(a=="cdt")dlFile(slug(c.titre)+".txt","text/plain",ficheText(c));else fichePrint(c)}
+ else if(a=="cexp"){dlFile("fiches-gsc-"+today()+".csv","text/csv",csvAll(A.cont),true)}
  else if(a=="cpub"){const c=A.cont.find(c=>c.id==id);if(c)run(async()=>ok(await sb.from("contenus").update({publie:!c.publie}).eq("id",id)))}
  else if(a=="cdel"){if(confirm("Supprimer cette fiche ?"))run(async()=>ok(await sb.from("contenus").delete().eq("id",id)))}
  else if(a=="open"){A.sel=id;rr()}else if(a=="close"){A.sel="";rr()}
