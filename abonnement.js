@@ -9,7 +9,8 @@ let ANNUEL_ESSENTIEL=50000;
 const CATS={idee:"Idées de business",produit_teste:"Produits testés",cas_concret:"Cas concrets",publicite:"Publicité",nouveaute:"Nouveautés"};
 const PLATS={facebook:"Facebook",instagram:"Instagram",whatsapp:"WhatsApp Business",tiktok:"TikTok"};
 const SEM=[["Diagnostic et installation","Diagnostic e-commerce"],["Gestion commerciale","Système de gestion structuré"],["Performance et développement","Tableau de bord analysé"],["Évaluation et autonomie","Plan d’action à 30 jours"]];
-const TYPES={fiche:"Fiche",video:"Vidéo",formation:"Formation",fichier:"Fichier"};
+const TYPES={fiche:"Fiche",video:"Vidéo",formation:"Formation",fichier:"Fichier",lien:"Lien"};
+const AUD2={tous:"Tous",accompagnes:"Accompagnés",abonnes:"Abonnés"};
 const AUD={abonnes:"Abonnés actifs",accompagnes:"Accompagnés",tous:"Tous les clients"};
 const MENS=["essentiel","croissance"];
 const MINE=["abo","acc","gabo","gcon","gacc","goff"];
@@ -30,7 +31,8 @@ sty.textContent=`.xg{display:grid;grid-template-columns:repeat(auto-fit,minmax(2
 .xw{border-left:4px solid var(--pu);padding-left:10px;margin:14px 0 6px}
 .xk{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);flex-wrap:wrap}
 .xk input[type=checkbox]{width:auto;min-width:0}.xk input[type=text]{flex:1;min-width:140px}
-.xs{padding:4px 9px}`;
+.xs{padding:4px 9px}
+.xe input,.xe select,.xe textarea{min-width:0}.xe td{vertical-align:top;padding:5px 4px}`;
 document.head.appendChild(sty);
 
 /* ---------- outils ---------- */
@@ -50,13 +52,14 @@ const safeImg=u=>/^[\w\-\/.]+\.(png|jpe?g|webp|gif)$/i.test(u||"")&&!/\.\./.test
 const amt=(f,du)=>f=="accompagnement"?TAR[f].prix:du==12?(f=="essentiel"?ANNUEL_ESSENTIEL:TAR[f].prix*12):TAR[f].prix;
 
 /* ---------- état ---------- */
-const X={off:[],offOk:false,loaded:false,loading:false,err:"",abos:[],paies:[],cont:[],ap:[],tach:[],seas:[],bil:null,info:"",cat:"tous",plat:"tous",typ:"tous",pf:"",
- A:{abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],sel:""}};
+const X={off:[],offOk:false,loaded:false,loading:false,err:"",abos:[],paies:[],cont:[],ap:[],tach:[],seas:[],bil:null,info:"",cat:"tous",plat:"tous",typ:"tous",pf:"",suivi:[],suiviOk:false,ed:null,edDirty:false,
+ A:{abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],suivi:[],sel:""}};
 const hasAbo=()=>X.abos.some(live);
 const hasAcc=()=>X.abos.some(a=>a.formule=="accompagnement"&&live(a));
 const best=()=>X.abos.filter(live).sort((a,b)=>b.expire.localeCompare(a.expire))[0];
-const reset=()=>{X.loaded=false;X.loading=false;X.err="";X.abos=[];X.paies=[];X.cont=[];X.ap=[];X.tach=[];X.seas=[];X.bil=null;X.pf="";X.A={abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],sel:""}};
+const reset=()=>{X.suivi=[];X.suiviOk=false;X.ed=null;X.edDirty=false;X.loaded=false;X.loading=false;X.err="";X.abos=[];X.paies=[];X.cont=[];X.ap=[];X.tach=[];X.seas=[];X.bil=null;X.pf="";X.A={abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],suivi:[],sel:""}};
 
+const edFrom=l=>[...l].sort((a,b)=>(!a.formation-!b.formation)||(a.formation||"").localeCompare(b.formation||"","fr")||(a.module||"").localeCompare(b.module||"","fr")||(a.ordre||0)-(b.ordre||0)).map(c=>({id:c.id,formation:c.formation||"",module:c.module||"",ordre:c.ordre||1,type:c.type||"fiche",titre:c.titre||"",lien:c.lien||"",resume:c.resume||"",audience:c.audience||"abonnes",fichier:c.fichier||null,fichier_nom:c.fichier_nom||null}));
 async function xLoad(){
  X.loading=true;X.err="";
  try{
@@ -72,6 +75,8 @@ async function xLoad(){
     sb.from("acc_seances").select("*").order("date_heure"),
     sb.from("acc_bilans").select("*")])).map(ok);
    Object.assign(X.A,{abos:ab,paies:pa,cl,cont:co,tach:ta,seas:se,bil:bi});
+   try{X.A.suivi=ok(await sb.from("contenus_suivi").select("*"))||[];X.suiviOk=true}catch(e){X.A.suivi=[];X.suiviOk=false}
+   if(!X.ed||!X.edDirty)X.ed=edFrom(co);
   }else if(me){
    const[ab,pa,ap,co,ta,se,bi]=(await Promise.all([
     sb.from("abonnements").select("*").eq("user_id",me.id),
@@ -82,6 +87,7 @@ async function xLoad(){
     sb.from("acc_seances").select("*").eq("user_id",me.id).order("date_heure"),
     sb.from("acc_bilans").select("*").eq("user_id",me.id).maybeSingle()])).map(ok);
    Object.assign(X,{abos:ab||[],paies:pa||[],ap:ap||[],cont:co||[],tach:ta||[],seas:se||[],bil:bi});
+   try{X.suivi=(ok(await sb.from("contenus_suivi").select("contenu_id").eq("user_id",me.id))||[]).map(r=>r.contenu_id);X.suiviOk=true}catch(e){X.suivi=[];X.suiviOk=false}
   }
  }catch(e){X.err=/does not exist|schema cache|Could not find/i.test(e.message||"")?"Module non installé : exécutez d’abord le script SQL abonnement_supabase.sql dans Supabase.":(e.message||"Erreur de chargement")}
  X.loaded=true;X.loading=false;render();
@@ -91,10 +97,11 @@ const rr=()=>{const y=scrollY;render();scrollTo(0,y)};
 
 /* ---------- composants ---------- */
 const cards=l=>l.length?l.map(c=>{const im=safeImg(c.image),li=safeLink(c.lien),ext=!!safeUrl(c.lien);
- return`<details class=xd><summary><b>${esc(c.titre)}</b>${c.type?`<span class=xt>${esc(TYPES[c.type]||c.type)}</span>`:""}${c.categorie?`<span class=xt>${esc(CATS[c.categorie]||c.categorie)}</span>`:""}${c.plateforme?`<span class=xt>${esc(PLATS[c.plateforme]||c.plateforme)}</span>`:""}${admin&&c.audience?`<span class=xt>${esc(AUD[c.audience]||c.audience)}</span>`:(c.gratuit||c.audience=="tous")?`<span class=xt>Gratuit</span>`:""}${c.publie?"":`<span class=xt>Masqué</span>`}</summary>${c.resume?`<p>${nl(c.resume)}</p>`:""}${im?`<img src="${esc(im)}" alt="">`:""}${c.resultat?`<div class=xr><b>Résultat observé :</b> ${nl(c.resultat)}<br><small class=mu>Résultat constaté dans un contexte précis : il n’est pas garanti pour votre activité.</small></div>`:""}${c.corps?`<div>${nl(c.corps)}</div>`:""}${li?`<p><a href="${esc(li)}"${ext?" target=_blank rel=noopener":" download"}>${{video:"Voir la vidéo",formation:"Ouvrir la formation",fichier:"Télécharger le fichier"}[c.type]||"Ouvrir la ressource"} ↗</a></p>`:""}</details>`}).join(""):`<p class=mu>Aucun contenu pour ce filtre.</p>`;
+ return`<details class=xd><summary><b>${esc(c.titre)}</b>${c.type?`<span class=xt>${esc(TYPES[c.type]||c.type)}</span>`:""}${c.categorie?`<span class=xt>${esc(CATS[c.categorie]||c.categorie)}</span>`:""}${c.plateforme?`<span class=xt>${esc(PLATS[c.plateforme]||c.plateforme)}</span>`:""}${admin&&c.audience?`<span class=xt>${esc(AUD[c.audience]||c.audience)}</span>`:(c.gratuit||c.audience=="tous")?`<span class=xt>Gratuit</span>`:""}${c.publie?"":`<span class=xt>Masqué</span>`}</summary>${c.resume?`<p>${nl(c.resume)}</p>`:""}${im?`<img src="${esc(im)}" alt="">`:""}${c.resultat?`<div class=xr><b>Résultat observé :</b> ${nl(c.resultat)}<br><small class=mu>Résultat constaté dans un contexte précis : il n’est pas garanti pour votre activité.</small></div>`:""}${c.corps?`<div>${nl(c.corps)}</div>`:""}${li?`<p><a href="${esc(li)}"${ext?" target=_blank rel=noopener":" download"}>${{video:"Voir la vidéo",formation:"Ouvrir la formation",fichier:"Télécharger le fichier",lien:"Ouvrir le lien"}[c.type]||"Ouvrir la ressource"} ↗</a></p>`:""}${c.fichier?`<p><button class="b xs" data-x=dl data-id=${c.id}>Télécharger : ${esc(c.fichier_nom||"fichier")}</button></p>`:""}${!admin&&X.suiviOk?`<label class=xk style="border:0"><input type=checkbox data-x=done data-id=${c.id}${X.suivi.includes(c.id)?" checked":""}> Marquer comme terminé</label>`:""}</details>`}).join(""):`<p class=mu>Aucun contenu pour ce filtre.</p>`;
 
-const grouped=l=>{if(!l.length)return cards(l);const m={};l.forEach(c=>{(m[c.module||""]=m[c.module||""]||[]).push(c)});
- return Object.keys(m).sort((a,b)=>a===""?-1:b===""?1:a.localeCompare(b,"fr")).map(k=>(k?`<div class=xw><b>${esc(k)}</b></div>`:"")+cards(m[k].sort((a,b)=>(a.ordre||0)-(b.ordre||0)))).join("")};
+const grouped=l=>{if(!l.length)return cards(l);const F_={};l.forEach(c=>{(F_[c.formation||""]=F_[c.formation||""]||[]).push(c)});
+ return Object.keys(F_).sort((a,b)=>a===""?1:b===""?-1:a.localeCompare(b,"fr")).map(k=>{const g=F_[k],d=g.filter(c=>X.suivi.includes(c.id)).length,pc=Math.round(d/g.length*100),m={};g.forEach(c=>{(m[c.module||""]=m[c.module||""]||[]).push(c)});
+  return`<div class=cd style="margin-bottom:6px"><h2>${k?esc(k):"Ressources"}</h2>${X.suiviOk&&!admin?`<div class=xp><i style="width:${pc}%"></i></div><p class=mu>${d} / ${g.length} terminé${d>1?"s":""} (${pc} %)</p>`:""}</div>`+Object.keys(m).sort((a,b)=>a===""?-1:b===""?1:a.localeCompare(b,"fr")).map(mk=>(mk?`<div class=xw><b>${esc(mk)}</b></div>`:"")+cards(m[mk].sort((a,b)=>(a.ordre||0)-(b.ordre||0)))).join("")}).join("")};
 function paySec(fs){
  const sel=fs.includes(X.pf)?X.pf:"";
  const cs=fs.map(k=>{const t=TAR[k];return`<div class="xo${k=="croissance"?" hot":""}"><h3>${t.nom}</h3><div class=xpx>${F(t.prix)}<small class=mu>${k=="accompagnement"?" · paiement unique":" / mois"}</small></div><p>${esc(t.txt)}</p><button class=b data-x=sel data-id=${k}>Choisir cette formule</button></div>`}).join("");
@@ -162,7 +169,24 @@ function goffView(){
  if(!X.offOk)return`<div class=cd><h2>Offres</h2><p class=no>Module non installé : exécutez le script SQL offres_supabase.sql dans Supabase (après abonnement_supabase.sql), puis rechargez.</p></div>`;
  return`<div class=cd><h2>Mes offres et leurs prix</h2><div class=w><table><tr><th>Offre<th>Type<th>Contenu<th>Durée d’accès<th>Prix (F CFA)<th></tr>${OFF.map(o=>`<tr><td><b>${esc(o[0]=="essentiel_annuel"?"Essentiel annuel":TAR[o[0]].nom)}</b><td>${o[1]}<td style="white-space:normal;min-width:220px">${o[2]}<td>${o[3]}<td><input id=x-pr-${o[0]} type=number min=100 step=500 value=${pr(o[0])} style="width:110px"><td>${ab_("oprix",o[0],"Enregistrer")}`).join("")}</table></div><p class=mu>Le nouveau prix s’applique aux prochains paiements. Les abonnements déjà payés ne changent pas. Les abonnements restent mensuels ; l’accompagnement est un paiement unique avec 2 mois de suivi.</p></div>`}
 function gconView(){
- return`<div class=cd><h2>Ajouter une fiche</h2><div class=f><div><label>Type</label><select id=x-ty>${opts(TYPES)}</select></div><div><label>Audience</label><select id=x-au>${opts(AUD)}</select></div><div><label>Catégorie (optionnel)</label><select id=x-ct><option value="">Aucune</option>${opts(CATS)}</select></div><div><label>Plateforme (optionnel)</label><select id=x-cp><option value="">Aucune</option>${opts(PLATS)}</select></div><div><label>Titre</label><input id=x-ti maxlength=150></div></div><br><label class=mu>Description</label><textarea id=x-re rows=2></textarea><br><br><label class=mu>Contenu détaillé</label><textarea id=x-co rows=5></textarea><br><br><label class=mu>Résultat observé, chiffres réels (ventes, marge, ROAS…) : indiquez aussi les échecs</label><textarea id=x-rs rows=2></textarea><div class=f style="margin-top:10px"><div><label>Lien https:// ou fichier du site (ex. fichiers/guide.pdf)</label><input id=x-li></div><div><label>Module (optionnel : organise formations et vidéos)</label><input id=x-mo maxlength=80></div><div><label>Ordre dans le module</label><input id=x-or type=number value=1 min=1></div><div><label>Image du site (ex. preuves/cas1.png)</label><input id=x-im></div></div><p><button class=b data-x=cadd>Publier la fiche</button></p></div>
+ const A=X.A,L=A.cont,R=X.ed||[];
+ const nf=new Set(L.map(c=>c.formation).filter(Boolean)).size,nfi=L.filter(c=>c.type=="fichier"||c.fichier).length,nab=L.filter(c=>c.audience=="abonnes").length;
+ const sel=(i,f,o,v)=>`<select data-x=ed data-i=${i} data-f=${f}>${Object.keys(o).map(k=>`<option value=${k}${k==v?" selected":""}>${esc(o[k])}</option>`).join("")}</select>`;
+ const ci=(i,f,v,w,ph)=>`<input data-x=ed data-i=${i} data-f=${f} value="${esc(v)}" style="width:${w}px" placeholder="${esc(ph||"")}">`;
+ const typ=r=>{const o={video:TYPES.video,fiche:TYPES.fiche,fichier:TYPES.fichier,lien:TYPES.lien};if(!o[r.type])o[r.type]=TYPES[r.type]||r.type;return o};
+ const acc=u=>({abo:A.abos.some(a=>a.user_id==u&&live(a)),acc:A.abos.some(a=>a.user_id==u&&a.formule=="accompagnement"&&live(a))});
+ const vis=(c,x)=>c.publie&&(c.gratuit||c.audience=="tous"||(c.audience=="abonnes"&&x.abo)||(c.audience=="accompagnes"&&x.acc));
+ const prog=[];
+ A.cl.forEach(c=>{const x=acc(c.id),g={};L.filter(k=>vis(k,x)).forEach(k=>{(g[k.formation||""]=g[k.formation||""]||[]).push(k.id)});
+  Object.keys(g).sort((a,b)=>a===""?1:b===""?-1:a.localeCompare(b,"fr")).forEach(f=>{const d=A.suivi.filter(s=>s.user_id==c.id&&g[f].includes(s.contenu_id)).length;if(d>0||x.abo)prog.push({c,f,d,n:g[f].length})})});
+ return`<div class=g>${K("Contenus",L.length)}${K("Formations",nf)}${K("Fichiers",nfi)}${K("Réservés aux abonnés",nab)}</div>
+ <div class=cd><h2>Contenus</h2><p class=mu>Une formation se compose de modules ; chaque module contient des vidéos (lien YouTube ou Vimeo), des fiches, des fichiers ou des liens. Les contenus sans formation apparaissent dans « Ressources ». Chaque contenu est visible selon son audience.</p>
+ <div class="w xe"><table><tr><th>Formation<th>Module<th>N°<th>Type<th>Titre<th>Lien (vidéo, page…)<th>Fichier<th>Description ou texte de la fiche<th>Audience<th></tr>${R.map((r,i)=>`<tr><td>${ci(i,"formation",r.formation,120)}<td>${ci(i,"module",r.module,120)}<td><input type=number min=1 data-x=ed data-i=${i} data-f=ordre value="${esc(r.ordre)}" style="width:60px"><td>${sel(i,"type",typ(r),r.type)}<td>${ci(i,"titre",r.titre,150)}<td>${ci(i,"lien",r.lien,170,"https://…")}<td style="white-space:normal"><input type=file data-x=ed data-i=${i} data-f=_file style="width:190px"><br><small id=x-fn-${i} class=mu>${esc(r._file?r._file.name:r.fichier_nom||"")}</small><td><textarea data-x=ed data-i=${i} data-f=resume rows=2 style="width:230px">${esc(r.resume)}</textarea><td>${sel(i,"audience",AUD2,r.audience)}<td><button class=x data-x=edel data-i=${i} title="Supprimer">×</button>`).join("")||"<tr><td colspan=10 class=mu>Aucun contenu : cliquez sur « Ajouter un contenu »."}</table></div>
+ <p><button class=b data-x=edadd>+ Ajouter un contenu</button> <button class=b data-x=edsave style="background:var(--mg)">Enregistrer les contenus</button> <small class=mu>Fichiers : 50 Mo maximum chacun.</small></p></div>
+ <div class=cd><h2>Progression des clients</h2>${X.suiviOk?`<div class=w><table><tr><th>Client<th>Formation<th>Terminés<th><th>%</tr>${prog.map(p=>{const pc=Math.round(p.d/p.n*100);return`<tr><td>${nm(p.c.id)}<td>${p.f?esc(p.f):"Ressources"}<td>${p.d} / ${p.n}<td style="min-width:180px"><div class=xp><i style="width:${pc}%"></i></div><td>${pc} %`}).join("")||"<tr><td colspan=5 class=mu>Aucune progression pour l’instant."}</table></div>`:`<p class=no>Module non installé : exécutez contenus_modele_supabase.sql dans Supabase.</p>`}</div>
+ ${gconOld()}`}
+function gconOld(){
+ return`<div class=cd><h2>Ajouter une fiche</h2><div class=f><div><label>Type</label><select id=x-ty>${opts(TYPES)}</select></div><div><label>Audience</label><select id=x-au>${opts(AUD)}</select></div><div><label>Catégorie (optionnel)</label><select id=x-ct><option value="">Aucune</option>${opts(CATS)}</select></div><div><label>Plateforme (optionnel)</label><select id=x-cp><option value="">Aucune</option>${opts(PLATS)}</select></div><div><label>Titre</label><input id=x-ti maxlength=150></div></div><br><label class=mu>Description</label><textarea id=x-re rows=2></textarea><br><br><label class=mu>Contenu détaillé</label><textarea id=x-co rows=5></textarea><br><br><label class=mu>Résultat observé, chiffres réels (ventes, marge, ROAS…) : indiquez aussi les échecs</label><textarea id=x-rs rows=2></textarea><div class=f style="margin-top:10px"><div><label>Lien https:// ou fichier du site (ex. fichiers/guide.pdf)</label><input id=x-li></div><div><label>Formation (optionnel)</label><input id=x-fo maxlength=80></div><div><label>Module (optionnel : organise formations et vidéos)</label><input id=x-mo maxlength=80></div><div><label>Ordre dans le module</label><input id=x-or type=number value=1 min=1></div><div><label>Image du site (ex. preuves/cas1.png)</label><input id=x-im></div></div><p><button class=b data-x=cadd>Publier la fiche</button></p></div>
  <div class=cd><h2>Fiches (${X.A.cont.length})</h2>${X.A.cont.map(c=>`${cards([c])}<p style="margin:-4px 0 12px">${ab_("cpub",c.id,c.publie?"Masquer":"Publier")} ${ab_("cdel",c.id,"Supprimer")}</p>`).join("")||"<p class=mu>Aucune fiche pour l’instant.</p>"}</div>`}
 
 function ovAcc(){const A=X.A;
@@ -204,7 +228,17 @@ document.addEventListener("click",async e=>{
  if(tb&&MINE.includes(tb.dataset.tab)&&!X.loading){xLoad();return}
  const t=e.target.closest("[data-x]");if(!t||/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))return;
  const a=t.dataset.x,id=t.dataset.id,A=X.A;
- if(a=="typ"){X.typ=id;rr()}else if(a=="cat"){X.cat=id;rr()}else if(a=="plat"){X.plat=id;rr()}else if(a=="sel"){X.pf=id;rr()}
+ if(a=="edadd"){X.ed=X.ed||[];const l=X.ed[X.ed.length-1];X.ed.push({id:null,formation:l?l.formation:"",module:l?l.module:"",ordre:l?(+l.ordre||0)+1:1,type:"video",titre:"",lien:"",resume:"",audience:"abonnes",fichier:null,fichier_nom:null});X.edDirty=true;rr()}
+ else if(a=="edel"){const i=+t.dataset.i,r=(X.ed||[])[i];if(!r)return;if(!r.id){X.ed.splice(i,1);rr();return}if(!confirm("Supprimer ce contenu ?"))return;run(async()=>{ok(await sb.from("contenus").delete().eq("id",r.id));if(r.fichier)await sb.storage.from("contenus").remove([r.fichier]);X.ed.splice(i,1)})}
+ else if(a=="edsave"){const rows=(X.ed||[]).filter(r=>r.titre.trim()||r.id||r._file);
+  for(const r of rows){if(!r.titre.trim())return alert("Chaque contenu doit avoir un titre.");if(r.lien.trim()&&!safeLink(r.lien.trim()))return alert("Lien invalide pour « "+r.titre+" » : utilisez https:// ou un fichier du site.");if(r._file&&r._file.size>52428800)return alert("Le fichier de « "+r.titre+" » dépasse 50 Mo.")}
+  t.disabled=true;
+  run(async()=>{for(const r of rows){const p={formation:r.formation.trim()||null,module:r.module.trim()||null,ordre:Math.max(1,+r.ordre||1),type:r.type,titre:r.titre.trim().slice(0,150),lien:r.lien.trim()||null,resume:r.resume.trim()||null,audience:r.audience,gratuit:r.audience=="tous"};
+   if(r._file){const nmf=r._file.name.replace(/[^\w.\-]+/g,"_").slice(-80),path=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2))+"-"+nmf;ok(await sb.storage.from("contenus").upload(path,r._file,{contentType:r._file.type||undefined}));if(r.fichier)await sb.storage.from("contenus").remove([r.fichier]);p.fichier=path;p.fichier_nom=r._file.name.slice(0,120);r.fichier=path;r.fichier_nom=p.fichier_nom;r._file=null}
+   if(r.id)ok(await sb.from("contenus").update(p).eq("id",r.id));else{r.id=ok(await sb.from("contenus").insert({...p,publie:true}).select("id").single()).id}}
+   X.edDirty=false;X.ed=null})}
+ else if(a=="dl"){const c=[...X.cont,...X.A.cont].find(c=>c.id==id);if(!c||!c.fichier)return;try{const r=ok(await sb.storage.from("contenus").createSignedUrl(c.fichier,3600,{download:c.fichier_nom||true}));location.assign(r.signedUrl)}catch(x){alert(x.message)}}
+ else if(a=="typ"){X.typ=id;rr()}else if(a=="cat"){X.cat=id;rr()}else if(a=="plat"){X.plat=id;rr()}else if(a=="sel"){X.pf=id;rr()}
  else if(a=="pay"){const du=id=="accompagnement"?1:+(val("x-du")||1),rf=val("x-rf").trim();
   if(rf.length<3)return alert("Indiquez la référence de la transaction.");
   t.disabled=true;X.pf="";await run(async()=>ok(await sb.from("paiements").insert({user_id:me.id,formule:id,duree_mois:du,montant:amt(id,du),operateur:val("x-op")||"autre",reference:rf.slice(0,60)})))}
@@ -217,7 +251,7 @@ document.addEventListener("click",async e=>{
  else if(a=="act"){const u=val("x-cl");if(!u)return alert("Choisissez un client.");run(async()=>ok(await sb.rpc("admin_activer",{p_uid:u,p_formule:val("x-fm"),p_jours:Math.min(400,Math.max(1,+val("x-jr")||30))})))}
  else if(a=="oprix"){const v=Math.round(+val("x-pr-"+id));if(!(v>=100&&v<=10000000))return alert("Indiquez un prix valide (100 F minimum).");run(async()=>ok(await sb.from("offres").update({prix:v,maj:new Date().toISOString()}).eq("formule",id)))}
  else if(a=="info"){run(async()=>ok(await sb.from("settings").upsert({k:"paiement_info",v:val("x-inf").slice(0,500)})))}
- else if(a=="cadd"){const r={type:val("x-ty")||"fiche",audience:val("x-au")||"abonnes",module:val("x-mo").trim()||null,ordre:+val("x-or")||1,categorie:val("x-ct")||null,plateforme:val("x-cp")||null,titre:val("x-ti").trim(),resume:val("x-re").trim()||null,corps:val("x-co").trim()||null,resultat:val("x-rs").trim()||null,lien:val("x-li").trim()||null,image:val("x-im").trim()||null,gratuit:val("x-au")=="tous",publie:true};
+ else if(a=="cadd"){const r={formation:val("x-fo").trim()||null,type:val("x-ty")||"fiche",audience:val("x-au")||"abonnes",module:val("x-mo").trim()||null,ordre:+val("x-or")||1,categorie:val("x-ct")||null,plateforme:val("x-cp")||null,titre:val("x-ti").trim(),resume:val("x-re").trim()||null,corps:val("x-co").trim()||null,resultat:val("x-rs").trim()||null,lien:val("x-li").trim()||null,image:val("x-im").trim()||null,gratuit:val("x-au")=="tous",publie:true};
   if(!r.titre)return alert("Le titre est obligatoire.");
   if(r.lien&&!safeLink(r.lien))return alert("Le lien doit commencer par https:// ou être un fichier du site (ex. fichiers/guide.pdf).");
   if(r.image&&!safeImg(r.image))return alert("L’image doit être un fichier du site, par exemple preuves/cas1.png");
@@ -231,11 +265,15 @@ document.addEventListener("click",async e=>{
  else if(a=="sdel"){run(async()=>ok(await sb.from("acc_seances").delete().eq("id",id)))}
  else if(a=="abil"){run(async()=>ok(await sb.from("acc_bilans").upsert({user_id:A.sel,bilan:val("x-bi").trim()||null,plan_action:val("x-pl").trim()||null,maj:new Date().toISOString()})))}
 });
+const edSet=t=>{const i=+t.dataset.i,f=t.dataset.f;if(!X.ed||!X.ed[i])return;if(f=="_file"){X.ed[i]._file=t.files[0]||null;const sp=$("#x-fn-"+i);if(sp)sp.textContent=X.ed[i]._file?X.ed[i]._file.name:(X.ed[i].fichier_nom||"")}else X.ed[i][f]=t.value;X.edDirty=true};
+document.addEventListener("input",e=>{const t=e.target;if(t.dataset&&t.dataset.x=="ed"&&t.type!="file")edSet(t)});
 document.addEventListener("change",async e=>{
  const t=e.target,a=t.dataset&&t.dataset.x;if(!a)return;
  if(a=="task"||a=="proof"){const k=X.tach.find(k=>k.id==t.dataset.id);if(!k)return;
   const fait=a=="task"?t.checked:k.fait,pr=a=="proof"?t.value:(k.preuve||"");
   run(async()=>ok(await sb.rpc("acc_maj_tache",{p_id:k.id,p_fait:fait,p_preuve:pr})))}
+ else if(a=="ed")edSet(t);
+ else if(a=="done"){const id=t.dataset.id;try{if(t.checked){ok(await sb.from("contenus_suivi").upsert({user_id:me.id,contenu_id:id},{ignoreDuplicates:true}));if(!X.suivi.includes(id))X.suivi.push(id)}else{ok(await sb.from("contenus_suivi").delete().eq("user_id",me.id).eq("contenu_id",id));X.suivi=X.suivi.filter(x=>x!=id)}rr()}catch(x){alert(x.message);t.checked=!t.checked}}
  else if(a=="atask"){run(async()=>ok(await sb.from("acc_taches").update({fait:t.checked,fait_le:t.checked?new Date().toISOString():null}).eq("id",t.dataset.id)))}
 });
 
