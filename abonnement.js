@@ -207,7 +207,7 @@ function gaccView(){
 const paid=()=>admin||(X.loaded&&(hasAbo()||X.noMod));
 const KPI_LOCK=["Investissement","CA potentiel","Bénéfice potentiel"];
 function lock(){
- if(!me||paid())return;
+ if(!me||paid()||tab=="prod")return; // onglet Produits : toutes les informations restent visibles pour tous
  const root=$("#app"),main=root&&root.querySelector("main");if(!main)return;
  root.querySelectorAll("td.c").forEach(td=>{td.textContent="🔒";td.classList.add("xlock")});
  root.querySelectorAll("th.c").forEach(th=>th.classList.add("xlock"));
@@ -216,7 +216,7 @@ function lock(){
   if(t=="Bénéfice par produit")c.innerHTML="<h2>Bénéfice par produit</h2><p class=mu>🔒 Réservé aux abonnés.</p>";
   if(t=="Alertes")c.querySelectorAll("p").forEach(p=>{if(/Marge nette négative/.test(p.textContent))p.remove()})});
  main.querySelectorAll("p.mu").forEach(p=>{if(/^(Prix de vente =|Repères :)/.test(p.textContent.trim()))p.remove()});
- if(["dash","prod","camp"].includes(tab))main.insertAdjacentHTML("afterbegin",`<div class=an style="margin:0 0 12px">🔒 Les calculs (marges, seuil de rentabilité, indicateurs publicitaires, bénéfices) sont réservés aux abonnés. <button class="b xs" data-tab=abo>Voir les offres</button></div>`)}
+ if(["dash","camp"].includes(tab))main.insertAdjacentHTML("afterbegin",`<div class=an style="margin:0 0 12px">🔒 Les calculs (marges, seuil de rentabilité, indicateurs publicitaires, bénéfices) sont réservés aux abonnés. <button class="b xs" data-tab=abo>Voir les offres</button></div>`)}
 
 /* ---------- branchement sur app.js ---------- */
 function prixCard(){
