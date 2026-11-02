@@ -62,7 +62,7 @@ const safeImg=u=>/^[\w\-\/.]+\.(png|jpe?g|webp|gif)$/i.test(u||"")&&!/\.\./.test
 const amt=(f,du)=>f=="accompagnement"?TAR[f].prix:du==12?(f=="essentiel"?ANNUEL_ESSENTIEL:TAR[f].prix*12):TAR[f].prix;
 
 /* ---------- état ---------- */
-const X={off:[],offOk:false,loaded:false,loading:false,err:"",abos:[],paies:[],cont:[],ap:[],tach:[],seas:[],bil:null,info:"",cat:"tous",plat:"tous",typ:"tous",pf:"",suivi:[],suiviOk:false,ed:null,edDirty:false,cedit:"",cspace:"abo",
+const X={off:[],offOk:false,loaded:false,loading:false,err:"",abos:[],paies:[],cont:[],ap:[],tach:[],seas:[],bil:null,info:"",cat:"tous",plat:"tous",typ:"tous",pf:"",suivi:[],suiviOk:false,ed:null,edDirty:false,cedit:"",cspace:"abo",csaved:"",
  A:{abos:[],paies:[],cl:[],cont:[],tach:[],seas:[],bil:[],suivi:[],sel:""}};
 const hasAbo=()=>X.abos.some(live);
 const hasAcc=()=>X.abos.some(a=>a.formule=="accompagnement"&&live(a));
@@ -86,7 +86,7 @@ async function xLoad(){
     sb.from("acc_bilans").select("*")])).map(ok);
    Object.assign(X.A,{abos:ab,paies:pa,cl,cont:co,tach:ta,seas:se,bil:bi});
    try{X.A.suivi=ok(await sb.from("contenus_suivi").select("*"))||[];X.suiviOk=true}catch(e){X.A.suivi=[];X.suiviOk=false}
-   if(!X.ed||!X.edDirty)X.ed=edFrom(co);
+   if(!X.ed||!X.edDirty)X.ed=edFrom(co);else{const miss=co.filter(c=>!X.ed.some(r=>r.id==c.id));if(miss.length)X.ed.push(...edFrom(miss))}
   }else if(me){
    const[ab,pa,ap,co,ta,se,bi]=(await Promise.all([
     sb.from("abonnements").select("*").eq("user_id",me.id),
@@ -213,8 +213,9 @@ function gconView(){
  A.cl.forEach(c=>{const x=acc(c.id),g={};LS.filter(k=>vis(k,x)).forEach(k=>{(g[k.formation||""]=g[k.formation||""]||[]).push(k.id)});
   Object.keys(g).sort((a,b)=>a===""?1:b===""?-1:a.localeCompare(b,"fr")).forEach(f=>{const d=A.suivi.filter(s=>s.user_id==c.id&&g[f].includes(s.contenu_id)).length;if(d>0||(sp=="acc"?x.acc:x.abo))prog.push({c,f,d,n:g[f].length})})});
  const progCard=`<div class=cd><h2>Progression des clients</h2>${X.suiviOk?`<div class=w><table><tr><th>Client<th>${sp=="acc"?"Parcours":"Formation"}<th>Terminés<th><th>%</tr>${prog.map(p=>{const pc=Math.round(p.d/p.n*100);return`<tr><td>${nm(p.c.id)}<td>${p.f?esc(p.f):"Ressources"}<td>${p.d} / ${p.n}<td style="min-width:180px"><div class=xp><i style="width:${pc}%"></i></div><td>${pc} %`}).join("")||"<tr><td colspan=5 class=mu>Aucune progression pour l’instant."}</table></div>`:`<p class=no>Module non installé : exécutez contenus_modele_supabase.sql dans Supabase.</p>`}</div>`;
- const tabs=`<div class=xch><button data-x=cspace data-id=abo class="${sp=="abo"?"on":""}">Espace Abonnement (${nB})</button><button data-x=cspace data-id=acc class="${sp=="acc"?"on":""}">Espace Accompagnement (${nA})</button></div>`;
- const btns=`<p><button class=b data-x=edadd>+ Ajouter un contenu</button> <button class=b data-x=edsave style="background:var(--mg)">Enregistrer les contenus</button> <small class=mu>Fichiers : 50 Mo maximum chacun (plan gratuit de Supabase).</small></p>`;
+ const saved=X.csaved?`<div class=an id=x-saved style="margin:0 0 12px">${esc(X.csaved)}</div>`:"";
+ const tabs=saved+`<div class=xch><button data-x=cspace data-id=abo class="${sp=="abo"?"on":""}">Espace Abonnement (${nB})</button><button data-x=cspace data-id=acc class="${sp=="acc"?"on":""}">Espace Accompagnement (${nA})</button></div>`;
+ const btns=`<p><button class=b data-x=edadd>+ Ajouter un contenu</button> <button class=b data-x=edsave style="background:var(--mg)">Enregistrer les contenus</button> <small id=x-dirty class=no style="${X.edDirty?"":"display:none"}"> ● Modifications non enregistrées</small> <small class=mu>Un clic enregistre tout : les deux espaces, les fichiers joints et les liens. Fichiers : 50 Mo maximum chacun.</small></p>`;
  if(sp=="acc"){
   const wkn=i=>LS.filter(c=>c.module&&c.module.startsWith("Semaine "+(i+1)+" ")),nvid=LS.filter(c=>c.type=="video"||kind(c.fichier_nom)=="video").length,nwk=WK.filter((w,i)=>wkn(i).length).length;
   return tabs+`<div class=g>${K("Documents et vidéos",LS.length)}${K("Vidéos",nvid)}${K("Fichiers joints",LS.filter(c=>c.fichier).length)}${K("Semaines couvertes",nwk+" / 8")}</div>
@@ -299,14 +300,26 @@ document.addEventListener("click",async e=>{
  if(a=="cspace"){X.cspace=id=="acc"?"acc":"abo";rr()}
  else if(a=="edadd"){X.ed=X.ed||[];const ac=X.cspace=="acc",l=[...X.ed].reverse().find(r=>ac?r.audience=="accompagnes":r.audience!="accompagnes");
   X.ed.push(ac?{id:null,formation:ACC_FORM,module:l?l.module:"",ordre:l?(+l.ordre||0)+1:1,type:"fichier",titre:"",lien:"",resume:"",audience:"accompagnes",fichier:null,fichier_nom:null,publie:true}:{id:null,formation:l?l.formation:"",module:l?l.module:"",ordre:l?(+l.ordre||0)+1:1,type:"video",titre:"",lien:"",resume:"",audience:"abonnes",fichier:null,fichier_nom:null,publie:true});X.edDirty=true;rr()}
- else if(a=="edel"){const i=+t.dataset.i,r=(X.ed||[])[i];if(!r)return;if(!r.id){X.ed.splice(i,1);rr();return}if(!confirm("Supprimer ce contenu ?"))return;run(async()=>{ok(await sb.from("contenus").delete().eq("id",r.id));if(r.fichier)await sb.storage.from("contenus").remove([r.fichier]);X.ed.splice(i,1)})}
- else if(a=="edsave"){const rows=(X.ed||[]).filter(r=>r.titre.trim()||r.id||r._file);
-  for(const r of rows){if(!r.titre.trim())return alert("Chaque contenu doit avoir un titre.");if(r.lien.trim()&&!safeLink(r.lien.trim()))return alert("Lien invalide pour « "+r.titre+" » : utilisez https:// ou un fichier du site.");if(r._file&&!MIME[ext(r._file.name)])return alert("Format non accepté pour « "+r.titre+" ». Formats acceptés : PDF, Word, Excel, PowerPoint, vidéo (MP4, WebM, MOV), images, TXT, CSV.");if(r._file&&r._file.size>52428800)return alert("Le fichier de « "+r.titre+" » dépasse 50 Mo (limite du plan gratuit de Supabase). Pour une vidéo plus lourde, utilisez un lien YouTube ou Vimeo.")}
-  t.disabled=true;
-  run(async()=>{for(const r of rows){const p={publie:pub(r),formation:r.formation.trim()||(r.audience=="accompagnes"?ACC_FORM:"")||null,module:r.module.trim()||null,ordre:Math.max(1,+r.ordre||1),type:r.type,titre:r.titre.trim().slice(0,150),lien:r.lien.trim()||null,resume:r.resume.trim()||null,audience:r.audience,gratuit:r.audience=="tous"};
-   if(r._file){const nmf=r._file.name.replace(/[^\w.\-]+/g,"_").slice(-80),path=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2))+"-"+nmf;ok(await sb.storage.from("contenus").upload(path,r._file,{contentType:MIME[ext(r._file.name)]}));if(r.fichier)await sb.storage.from("contenus").remove([r.fichier]);p.fichier=path;p.fichier_nom=r._file.name.slice(0,120);r.fichier=path;r.fichier_nom=p.fichier_nom;r._file=null}
-   if(r.id)ok(await sb.from("contenus").update(p).eq("id",r.id));else{r.id=ok(await sb.from("contenus").insert(p).select("id").single()).id}}
-   X.edDirty=false;X.ed=null})}
+ else if(a=="edel"){const i=+t.dataset.i,r=(X.ed||[])[i];if(!r)return;if(!r.id){if(r.fichier)sb.storage.from("contenus").remove([r.fichier]).catch(()=>{});X.ed.splice(i,1);rr();return}if(!confirm("Supprimer ce contenu ?"))return;run(async()=>{ok(await sb.from("contenus").delete().eq("id",r.id));if(r.fichier)await sb.storage.from("contenus").remove([r.fichier]);X.ed.splice(i,1)})}
+ else if(a=="edsave"){const rows=(X.ed||[]).filter(r=>r.titre.trim()||r.id||r._file),bad=[];
+  rows.forEach(r=>{const n="« "+(r.titre.trim()||"sans titre")+" » : ";if(!r.titre.trim())bad.push(n+"le titre est obligatoire");if(r.lien.trim()&&!safeLink(r.lien.trim()))bad.push(n+"lien invalide (utilisez https:// ou un fichier du site)");if(r._file&&!MIME[ext(r._file.name)])bad.push(n+"format de fichier non accepté (PDF, Word, Excel, PowerPoint, vidéo MP4/WebM/MOV, images, TXT, CSV)");if(r._file&&r._file.size>52428800)bad.push(n+"fichier de plus de 50 Mo (plan gratuit de Supabase) : utilisez un lien YouTube ou Vimeo")});
+  if(bad.length)return alert("Rien n’a été enregistré. À corriger :\n- "+bad.join("\n- "));
+  if(!rows.length)return alert("Aucun contenu à enregistrer.");
+  const y=scrollY,fails=[];let nf=0;t.disabled=true;
+  for(let k=0;k<rows.length;k++){const r=rows[k];t.textContent="Enregistrement… ("+(k+1)+"/"+rows.length+")";
+   try{
+    if(r._file){const nmf=r._file.name.replace(/[^\w.\-]+/g,"_").slice(-80),path=(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2))+"-"+nmf;
+     ok(await sb.storage.from("contenus").upload(path,r._file,{contentType:MIME[ext(r._file.name)]}));
+     r._old=r._old||r.fichier||null;r.fichier=path;r.fichier_nom=r._file.name.slice(0,120);r._file=null;nf++}
+    const p={publie:pub(r),formation:r.formation.trim()||(r.audience=="accompagnes"?ACC_FORM:"")||null,module:r.module.trim()||null,ordre:Math.max(1,+r.ordre||1),type:r.type,titre:r.titre.trim().slice(0,150),lien:r.lien.trim()||null,resume:r.resume.trim()||null,audience:r.audience,gratuit:r.audience=="tous",fichier:r.fichier||null,fichier_nom:r.fichier_nom||null};
+    if(r.id)ok(await sb.from("contenus").update(p).eq("id",r.id));else{r.id=ok(await sb.from("contenus").insert(p).select("id").single()).id}
+    if(r._old){try{await sb.storage.from("contenus").remove([r._old])}catch(e2){}r._old=null}
+   }catch(e){fails.push("« "+(r.titre||"sans titre")+" » : "+(e.message||e))}}
+  const saved=rows.length-fails.length;
+  X.csaved=fails.length?"":"✔ "+saved+" contenu"+(saved>1?"s":"")+" enregistré"+(saved>1?"s":"")+(nf?", dont "+nf+" fichier"+(nf>1?"s":"")+" téléversé"+(nf>1?"s":""):"")+".";
+  if(!fails.length){X.edDirty=false;X.ed=null}
+  await xLoad();scrollTo(0,y);
+  if(fails.length)alert(saved+" contenu(s) enregistré(s), "+fails.length+" en échec. Vos saisies sont conservées : corrigez puis cliquez de nouveau sur « Enregistrer les contenus ».\n- "+fails.join("\n- "))}
  else if(a=="play"){const c=[...X.cont,...X.A.cont].find(c=>c.id==id),box=$("#x-v-"+id);if(!c||!c.fichier||!box)return;
   try{const r=ok(await sb.storage.from("contenus").createSignedUrl(c.fichier,21600));
    box.innerHTML=`<video controls controlsList=nodownload playsinline preload=metadata style="width:100%;max-width:720px;border-radius:8px;background:#000"></video><p class=mu>Si la vidéo ne démarre pas, utilisez « Télécharger ».</p>`;
@@ -357,7 +370,10 @@ document.addEventListener("click",async e=>{
  else if(a=="sdel"){run(async()=>ok(await sb.from("acc_seances").delete().eq("id",id)))}
  else if(a=="abil"){run(async()=>ok(await sb.from("acc_bilans").upsert({user_id:A.sel,bilan:val("x-bi").trim()||null,plan_action:val("x-pl").trim()||null,maj:new Date().toISOString()})))}
 });
-const edSet=t=>{const i=+t.dataset.i,f=t.dataset.f;if(!X.ed||!X.ed[i])return;if(f=="_file"){X.ed[i]._file=t.files[0]||null;if(X.ed[i]._file){const k=kind(X.ed[i]._file.name),nt=k=="video"?"video":(["lien","video"].includes(X.ed[i].type)?"fichier":X.ed[i].type),se=document.querySelector(`select[data-x=ed][data-i="${i}"][data-f=type]`);X.ed[i].type=nt;if(se)se.value=nt}const sp=$("#x-fn-"+i);if(sp)sp.textContent=X.ed[i]._file?X.ed[i]._file.name:(X.ed[i].fichier_nom||"")}else X.ed[i][f]=t.value;X.edDirty=true};
+window.addEventListener("beforeunload",e=>{if(X.edDirty){e.preventDefault();e.returnValue=""}});
+document.addEventListener("click",e=>{if(!X.edDirty)return;const tb=e.target.closest("[data-tab]"),lo=e.target.closest("#lo");
+ if(((tb&&tb.dataset.tab!="gcon")||lo)&&!confirm("Vous avez des modifications non enregistrées dans l’onglet Contenus. Quitter sans enregistrer ?")){e.stopImmediatePropagation();e.preventDefault()}},true);
+const edSet=t=>{const i=+t.dataset.i,f=t.dataset.f;if(!X.ed||!X.ed[i])return;if(f=="_file"){X.ed[i]._file=t.files[0]||null;if(X.ed[i]._file){const k=kind(X.ed[i]._file.name),nt=k=="video"?"video":(["lien","video"].includes(X.ed[i].type)?"fichier":X.ed[i].type),se=document.querySelector(`select[data-x=ed][data-i="${i}"][data-f=type]`);X.ed[i].type=nt;if(se)se.value=nt}const sp=$("#x-fn-"+i);if(sp)sp.textContent=X.ed[i]._file?X.ed[i]._file.name:(X.ed[i].fichier_nom||"")}else X.ed[i][f]=t.value;X.edDirty=true;if(X.csaved){X.csaved="";const sv=$("#x-saved");if(sv)sv.remove()}const dd=$("#x-dirty");if(dd)dd.style.display=""};
 document.addEventListener("input",e=>{const t=e.target;if(t.dataset&&t.dataset.x=="ed"&&t.type!="file")edSet(t)});
 document.addEventListener("change",async e=>{
  const t=e.target,a=t.dataset&&t.dataset.x;if(!a)return;
