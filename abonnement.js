@@ -20,7 +20,7 @@ const TYPES={fiche:"Fiche",video:"Vidéo",formation:"Formation",fichier:"Fichier
 const AUD2={tous:"Tous",accompagnes:"Accompagnés",abonnes:"Abonnés"};
 const AUD={abonnes:"Abonnés actifs",accompagnes:"Accompagnés",tous:"Tous les clients"};
 const MENS=["essentiel","croissance"];
-const MINE=["abo","acc","gabo","gcon","gacc","goff"];
+const MINE=["abo","acc","gabo","gcon","gacc","goff","classe"];
 
 const sty=document.createElement("style");
 sty.textContent=`.xg{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-bottom:14px}
@@ -214,7 +214,8 @@ function gconView(){
   Object.keys(g).sort((a,b)=>a===""?1:b===""?-1:a.localeCompare(b,"fr")).forEach(f=>{const d=A.suivi.filter(s=>s.user_id==c.id&&g[f].includes(s.contenu_id)).length;if(d>0||(sp=="acc"?x.acc:x.abo))prog.push({c,f,d,n:g[f].length})})});
  const progCard=`<div class=cd><h2>Progression des clients</h2>${X.suiviOk?`<div class=w><table><tr><th>Client<th>${sp=="acc"?"Parcours":"Formation"}<th>Terminés<th><th>%</tr>${prog.map(p=>{const pc=Math.round(p.d/p.n*100);return`<tr><td>${nm(p.c.id)}<td>${p.f?esc(p.f):"Ressources"}<td>${p.d} / ${p.n}<td style="min-width:180px"><div class=xp><i style="width:${pc}%"></i></div><td>${pc} %`}).join("")||"<tr><td colspan=5 class=mu>Aucune progression pour l’instant."}</table></div>`:`<p class=no>Module non installé : exécutez contenus_modele_supabase.sql dans Supabase.</p>`}</div>`;
  const saved=X.csaved?`<div class=an id=x-saved style="margin:0 0 12px">${esc(X.csaved)}</div>`:"";
- const tabs=saved+`<div class=xch><button data-x=cspace data-id=abo class="${sp=="abo"?"on":""}">Espace Abonnement (${nB})</button><button data-x=cspace data-id=acc class="${sp=="acc"?"on":""}">Espace Accompagnement (${nA})</button></div>`;
+ const tabs=saved+`<div class=xch><button data-x=cspace data-id=abo class="${sp=="abo"&&X.cspace!="classe"?"on":""}">Espace Abonnement (${nB})</button><button data-x=cspace data-id=acc class="${sp=="acc"?"on":""}">Espace Accompagnement (${nA})</button><button data-x=cspace data-id=classe class="${X.cspace=="classe"?"on":""}">Salle de classe</button></div>`;
+ if(X.cspace=="classe")return tabs+classeView();
  const btns=`<p><button class=b data-x=edadd>+ Ajouter un contenu</button> <button class=b data-x=edsave style="background:var(--mg)">Enregistrer les contenus</button> <small id=x-dirty class=no style="${X.edDirty?"":"display:none"}"> ● Modifications non enregistrées</small> <small class=mu>Un clic enregistre tout : les deux espaces, les fichiers joints et les liens. Fichiers : 50 Mo maximum chacun.</small></p>`;
  if(sp=="acc"){
   const wkn=i=>LS.filter(c=>c.module&&c.module.startsWith("Semaine "+(i+1)+" ")),nvid=LS.filter(c=>c.type=="video"||kind(c.fichier_nom)=="video").length,nwk=WK.filter((w,i)=>wkn(i).length).length;
@@ -247,6 +248,86 @@ function gaccView(){
  <div class=cd><h2>Bilan final</h2><label class=mu>Bilan</label><textarea id=x-bi rows=4>${esc(B.bilan||"")}</textarea><br><br><label class=mu>Plan d’action pour les 30 jours suivants</label><textarea id=x-pl rows=4>${esc(B.plan_action||"")}</textarea><p><button class=b data-x=abil>Enregistrer le bilan</button></p></div>`;
  return h}
 
+/* ---------- Salle de classe : visio, lives, vocaux, fichiers ---------- */
+const CL={salle:"abonnes",msgs:[],sess:[],urls:{},loaded:false,loading:false,err:"",rec:null,busy:false};
+const CMIME=Object.assign({},MIME,{mp3:"audio/mpeg",m4a:"audio/mp4",wav:"audio/wav",ogg:"audio/ogg"});
+const CACCEPT=Object.keys(CMIME).map(e=>"."+e).join(",");
+const inClass=()=>!!me&&((tab=="classe"&&!admin)||(admin&&tab=="gcon"&&X.cspace=="classe"));
+const canSalle=s=>admin||(s=="abonnes"?hasAbo():hasAcc());
+const fhm=d=>d?new Date(d).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"";
+const mmss=s=>Math.floor(s/60)+":"+String(s%60).padStart(2,"0");
+const ytId=u=>{const m=String(u||"").match(/^https:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|live\/|embed\/|shorts\/)|youtu\.be\/)([\w-]{11})/);return m?m[1]:""};
+const vmId=u=>{const m=String(u||"").match(/^https:\/\/(?:www\.)?vimeo\.com\/(?:[^?#]*\/)?(\d{6,})/);return m?m[1]:""};
+const sgn=async(path,dl)=>ok(await sb.storage.from("classe").createSignedUrl(path,3600,dl?{download:dl}:undefined)).signedUrl;
+async function clUrls(list){const need=list.filter(m=>m.kind=="vocal"&&m.fichier&&!(CL.urls[m.fichier]&&CL.urls[m.fichier].exp>Date.now()));
+ if(!need.length)return;
+ try{ok(await sb.storage.from("classe").createSignedUrls(need.map(m=>m.fichier),3600)).forEach(x=>{if(x.signedUrl)CL.urls[x.path]={url:x.signedUrl,exp:Date.now()+3300000}})}catch(e){}}
+const msgHtml=m=>{const mine=m.user_id==me.id,adm=m.role=="admin";let body="";
+ if(m.kind=="texte")body=`<div>${nl(m.texte||"")}</div>`;
+ else if(m.kind=="vocal"){const u=CL.urls[m.fichier];body=`🎤 ${mmss(m.duree_s||0)} ${u?`<audio controls preload=none src="${esc(u.url)}" style="vertical-align:middle;max-width:100%"></audio>`:`<small class=mu>chargement…</small>`}`}
+ else{const k=kind(m.fichier_nom||m.fichier);body=`📎 <b>${esc(m.fichier_nom||"fichier")}</b> `+(k=="video"?`<span id=x-cv-${m.id}><button class="b xs" data-x=cplay data-m=${m.id}>▶ Lire</button></span> `:k=="pdf"?`<button class="b xs" data-x=copen data-m=${m.id}>Ouvrir</button> `:"")+`<button class="b xs" data-x=cdl data-m=${m.id}>Télécharger</button>`}
+ return`<div class=xm data-mid=${m.id} style="align-self:${mine?"flex-end":"flex-start"};background:${adm?"var(--ac)":"var(--cd)"};border:1px solid var(--bd);${adm?"border-left:4px solid var(--mg);":""}border-radius:10px;padding:6px 10px;max-width:92%"><div class=mu><b style="color:var(--tx)">${esc(m.auteur||"Membre")}</b>${adm?` <span class=xt>Accompagnateur</span>`:""} · ${fhm(m.cree_le)}${(mine||admin)?` <button class=x data-x=cmdel data-m=${m.id} title="Supprimer" style="font-size:14px">🗑</button>`:""}</div>${body}</div>`};
+const sessCard=s=>{const live=s.statut=="en_cours",yt=ytId(s.lien),vm=vmId(s.lien);
+ const emb=live&&s.type=="live"?(yt?`<iframe src="https://www.youtube-nocookie.com/embed/${yt}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy=strict-origin-when-cross-origin style="width:100%;aspect-ratio:16/9;border:0;border-radius:8px;margin:8px 0"></iframe>`:vm?`<iframe src="https://player.vimeo.com/video/${vm}" allow="autoplay; picture-in-picture; fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:8px;margin:8px 0"></iframe>`:""):"";
+ const lab={visio:"Rejoindre la visioconférence",live:"Regarder le live",replay:"Voir le replay"}[s.type]||"Ouvrir";
+ return`<div class="xo${live?" hot":""}" style="margin-bottom:10px"><b>${live?"🔴 EN DIRECT · ":""}${esc(s.titre)}</b> <span class=xt>${esc({visio:"Visio",live:"Live",replay:"Replay"}[s.type]||s.type)}</span> <span class=xt>${s.audience=="accompagnes"?"Accompagnés":"Abonnés"}</span><br><span class=mu>${fhm(s.debut)} · ${{programmee:"Programmée",en_cours:"En cours",terminee:"Terminée"}[s.statut]||""}</span>${s.description?`<p>${nl(s.description)}</p>`:""}${emb}${safeUrl(s.lien)?`<p><a class=b href="${esc(s.lien)}" target=_blank rel=noopener style="display:inline-block;text-decoration:none">${lab} ↗</a></p>`:""}${admin?`<p>${s.statut!="en_cours"?ab_("cs_start",s.id,"▶ Démarrer (en direct)"):""} ${s.statut=="en_cours"?ab_("cs_end",s.id,"■ Terminer"):""} ${ab_("cs_del",s.id,"Supprimer")}</p>`:""}</div>`};
+const sessList=()=>{const o={en_cours:0,programmee:1,terminee:2},l=[...CL.sess].sort((a,b)=>(o[a.statut]-o[b.statut])||(a.statut=="programmee"?new Date(a.debut)-new Date(b.debut):new Date(b.debut)-new Date(a.debut))).slice(0,12);
+ return l.length?l.map(sessCard).join(""):`<p class=mu>Aucun rendez-vous programmé pour l’instant.</p>`};
+const sessSig=()=>CL.sess.map(s=>[s.id,s.statut,s.lien,s.debut,s.titre].join("~")).join("|");
+const recUi=()=>CL.rec?`<span class=no>● <b id=x-cl-tm>${mmss(Math.round((Date.now()-CL.rec.t0)/1000))}</b></span> <button class=b data-x=crecsend>Envoyer</button> <button class=b data-x=crecno style="background:var(--mu)">Annuler</button>`:`<button class=b data-x=crec title="Enregistrer un message vocal (3 minutes maximum)">🎤 Vocal</button>`;
+const recPaint=()=>{const e=$("#x-cl-rec");if(e)e.innerHTML=recUi()};
+function clPaint(){const box=$("#x-cl-chat");if(!box)return false;
+ const ids=CL.msgs.map(m=>String(m.id));
+ box.querySelectorAll("[data-mid]").forEach(e=>{if(!ids.includes(e.dataset.mid))e.remove()});
+ const have=new Set([...box.querySelectorAll("[data-mid]")].map(e=>e.dataset.mid)),atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<80,fresh=CL.msgs.filter(m=>!have.has(String(m.id)));
+ const em=$("#x-cl-empty");if(em&&CL.msgs.length)em.remove();
+ fresh.forEach(m=>box.insertAdjacentHTML("beforeend",msgHtml(m)));
+ if(!CL.msgs.length&&!$("#x-cl-empty"))box.innerHTML=`<p class=mu id=x-cl-empty>Aucun message pour l’instant : lancez la discussion.</p>`;
+ if(fresh.length&&(atBottom||fresh.some(m=>m.user_id==me.id)))box.scrollTop=box.scrollHeight;
+ const ss=$("#x-cl-sess");if(ss&&ss.dataset.sig!=sessSig()){ss.innerHTML=sessList();ss.dataset.sig=sessSig()}
+ return true}
+async function clFetch(){
+ if(!inClass()||!canSalle(CL.salle)){CL.loading=false;return}
+ CL.loading=true;
+ try{const[m,s]=await Promise.all([sb.from("classe_messages").select("*").eq("salle",CL.salle).order("cree_le",{ascending:false}).limit(100),sb.from("classe_sessions").select("*").order("debut",{ascending:false}).limit(40)]);
+  CL.msgs=(ok(m)||[]).reverse();CL.sess=ok(s)||[];CL.err="";await clUrls(CL.msgs)}
+ catch(e){CL.err=/does not exist|schema cache|Could not find/i.test(e.message||"")?"Module non installé : exécutez classe_supabase.sql dans Supabase, puis rechargez la page.":(e.message||"Erreur de chargement")}
+ const first=!CL.loaded||!!CL.err;CL.loaded=true;CL.loading=false;
+ if(first||!clPaint())rr()}
+function classeView(){
+ if(CL.err)return`<div class=cd><h2>Salle de classe</h2><p class=no>${esc(CL.err)}</p></div>`;
+ if(!CL.loaded)return`<div class=cd><h2>Salle de classe</h2><p class=mu>Chargement…</p></div>`;
+ const chips=`<div class=xch>${[["abonnes","Salle des abonnés"],["accompagnes","Salle accompagnement"]].filter(x=>canSalle(x[0])).map(x=>`<button data-x=csalle data-id=${x[0]} class="${CL.salle==x[0]?"on":""}">${x[1]}</button>`).join("")}</div>`;
+ const form=admin?`<details class=xd><summary><b>Programmer une visioconférence ou un live</b></summary><p class=mu>Créez la réunion sur Google Meet, Zoom ou Jitsi, puis collez son lien ici. Pour un live, collez le lien YouTube ou Vimeo : il s’affichera dans la page au moment où vous cliquez sur « Démarrer ». <a href="https://meet.google.com/new" target=_blank rel=noopener>Créer une réunion Google Meet ↗</a></p><div class=f><div><label>Titre</label><input id=x-st maxlength=150></div><div><label>Type</label><select id=x-sy><option value=visio>Visioconférence</option><option value=live>Live</option><option value=replay>Replay</option></select></div><div><label>Pour qui</label><select id=x-sa><option value=abonnes>Abonnés actifs (et accompagnés)</option><option value=accompagnes>Accompagnés seulement</option></select></div><div><label>Date et heure</label><input id=x-sdt type=datetime-local></div><div><label>Lien https://</label><input id=x-sli></div></div><br><label class=mu>Description (optionnel)</label><textarea id=x-sde rows=2 maxlength=1000></textarea><p><button class=b data-x=cs_add>Programmer</button></p></details>`:"";
+ return`<div class=cd><h2>Salle de classe</h2><p class=mu>Visioconférences, lives, messages vocaux et fichiers partagés, réservés aux abonnés actifs et aux accompagnés.</p><div id=x-cl-sess data-sig="${esc(sessSig())}">${sessList()}</div></div>${form}
+ <div class=cd><h2>Discussion</h2>${chips}<div id=x-cl-chat style="display:flex;flex-direction:column;gap:8px;max-height:460px;overflow-y:auto;padding:8px;background:var(--bg);border:1px solid var(--bd);border-radius:10px">${CL.msgs.length?CL.msgs.map(msgHtml).join(""):`<p class=mu id=x-cl-empty>Aucun message pour l’instant : lancez la discussion.</p>`}</div>
+ <div style="display:flex;gap:8px;align-items:flex-end;margin-top:8px;flex-wrap:wrap"><textarea id=x-cl-txt rows=2 maxlength=2000 placeholder="Écrire un message… (Entrée pour envoyer, Maj + Entrée pour un retour à la ligne)" style="flex:1;min-width:200px"></textarea><label class=b style="cursor:pointer;display:inline-block">📎 Fichier<input id=x-cl-file type=file data-x=cfile accept="${CACCEPT}" style="display:none"></label><span id=x-cl-rec>${recUi()}</span><button class=b data-x=cmsend>Envoyer</button></div>
+ <p class=mu>Fichiers et vocaux : 50 Mo maximum. Les messages se mettent à jour automatiquement toutes les 4 secondes.</p></div>`}
+const classeLocked=()=>`<div class=cd><h2>🔒 Salle de classe</h2>${pendBanner()}<p>La salle de classe réunit les visioconférences, les lives, les messages vocaux et le partage de fichiers en direct avec votre accompagnateur et les autres membres. Elle est réservée aux abonnés actifs et aux clients accompagnés.</p></div>${paySec(["essentiel","croissance","accompagnement"])}`;
+async function clUp(file,name,mime){const path=me.id+"/"+(crypto.randomUUID?crypto.randomUUID():Date.now()+"-"+Math.random().toString(36).slice(2))+"-"+name.replace(/[^\w.\-]+/g,"_").slice(-60);ok(await sb.storage.from("classe").upload(path,file,{contentType:mime}));return path}
+async function clPost(row,path){try{ok(await sb.from("classe_messages").insert(Object.assign({user_id:me.id,salle:CL.salle},row)))}catch(e){if(path)await sb.storage.from("classe").remove([path]).catch(()=>{});throw e}}
+async function clSendText(){const t=$("#x-cl-txt");if(!t||CL.busy)return;const txt=t.value.trim();if(!txt)return;CL.busy=true;
+ try{await clPost({kind:"texte",texte:txt.slice(0,2000)});t.value=""}catch(e){alert(e.message)}CL.busy=false;await clFetch()}
+async function clSendFile(f){if(!f||CL.busy)return;const mime=CMIME[ext(f.name)];
+ if(!mime)return alert("Format non accepté. Formats : PDF, Word, Excel, PowerPoint, vidéo (MP4, WebM, MOV), audio, images, TXT, CSV.");
+ if(f.size>52428800)return alert("Fichier de plus de 50 Mo (limite du plan gratuit de Supabase). Pour une vidéo plus lourde, partagez un lien YouTube ou Vimeo.");
+ CL.busy=true;try{const path=await clUp(f,f.name,mime);await clPost({kind:"fichier",fichier:path,fichier_nom:f.name.slice(0,120)},path)}catch(e){alert(e.message)}CL.busy=false;await clFetch()}
+function recCancel(){const r=CL.rec;if(!r)return;r.cancel=true;clearInterval(r.timer);try{if(r.mr.state!="inactive")r.mr.stop()}catch(e){}r.stream.getTracks().forEach(t=>t.stop());CL.rec=null;recPaint()}
+async function recStart(){
+ if(!navigator.mediaDevices||!window.MediaRecorder)return alert("Votre navigateur ne permet pas l’enregistrement vocal. Utilisez une version récente de Chrome, Edge, Firefox ou Safari.");
+ try{const stream=await navigator.mediaDevices.getUserMedia({audio:true}),types=["audio/webm;codecs=opus","audio/webm","audio/mp4","audio/ogg;codecs=opus"],mt=types.find(t=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(t))||"",mr=mt?new MediaRecorder(stream,{mimeType:mt}):new MediaRecorder(stream),chunks=[];
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+  CL.rec={mr,stream,chunks,t0:Date.now(),mt:mr.mimeType||mt||"audio/webm",cancel:false};mr.start();
+  CL.rec.timer=setInterval(()=>{const tm=$("#x-cl-tm");if(!CL.rec)return;const s=Math.round((Date.now()-CL.rec.t0)/1000);if(tm)tm.textContent=mmss(s);if(s>=180)recSend()},500);recPaint()}
+ catch(e){alert("Microphone inaccessible : autorisez-le dans votre navigateur puis réessayez. ("+(e.message||e.name)+")")}}
+function recSend(){const r=CL.rec;if(!r)return;clearInterval(r.timer);const dur=Math.round((Date.now()-r.t0)/1000);
+ r.mr.onstop=async()=>{r.stream.getTracks().forEach(t=>t.stop());CL.rec=null;recPaint();if(dur<1||r.cancel)return;
+  const base=(r.mt||"audio/webm").split(";")[0],e={"audio/webm":"webm","audio/mp4":"m4a","audio/ogg":"ogg","audio/mpeg":"mp3"}[base]||"webm",blob=new Blob(r.chunks,{type:base});
+  CL.busy=true;try{const path=await clUp(blob,"vocal."+e,base);await clPost({kind:"vocal",fichier:path,fichier_nom:"vocal."+e,duree_s:Math.min(dur,600)},path)}catch(er){alert(er.message)}CL.busy=false;await clFetch()};
+ try{r.mr.stop()}catch(e){r.mr.onstop()}}
+setInterval(()=>{if(document.hidden||!inClass()||!CL.loaded||CL.loading||CL.busy||CL.rec||!canSalle(CL.salle))return;clFetch()},4000);
+document.addEventListener("keydown",e=>{if(e.target&&e.target.id=="x-cl-txt"&&e.key=="Enter"&&!e.shiftKey){e.preventDefault();clSendText()}});
+
 /* ---------- réservation des calculs aux abonnés ---------- */
 const paid=()=>admin||(X.loaded&&(hasAbo()||X.noMod));
 const KPI_LOCK=["Investissement","CA potentiel","Bénéfice potentiel"];
@@ -278,6 +359,7 @@ view=function(){
   if(X.err)return`<div class=cd><h2>Information</h2><p class=no>${esc(X.err)}</p></div>`;
   if(!X.loaded)return`<div class=cd><p class=mu>Chargement…</p></div>`;
   if(tab=="abo")return aboView();if(tab=="acc")return accView();
+  if(tab=="classe")return hasAbo()?classeView():classeLocked();
   if(admin){if(tab=="goff")return goffView();if(tab=="gabo")return gaboView();if(tab=="gcon")return gconView();if(tab=="gacc")return gaccView()}
  }
  return _view()};
@@ -285,8 +367,10 @@ view=function(){
 render=function(){
  if(!me){reset();$("#app").innerHTML=authView();return}
  if(!X.loaded&&!X.loading)xLoad();
+ if(inClass()&&!CL.loaded&&!CL.loading&&canSalle(CL.salle)){CL.loading=true;clFetch()}
+ if(!inClass()&&CL.rec)recCancel();
  const tabs=[...(admin?[["admin","Administration"],["goff","Offres"],["gabo","Abonnements"],["gcon","Contenus"],["gacc","Accompagnés"]]:[]),
-  ...(S?[["dash","Tableau de bord"],["obj","Objectif"],["prod","Produits"],["cmd","Commandes"],["camp","Campagnes"],["ref",(paid()?"":"🔒 ")+"Référence KPI"],["abo",(hasAbo()?"":"🔒 ")+"Espace Abonnement"],["acc",(hasAcc()||X.tach.length?"":"🔒 ")+"Espace Accompagnement"]]:[])];
+  ...(S?[["dash","Tableau de bord"],["obj","Objectif"],["prod","Produits"],["cmd","Commandes"],["camp","Campagnes"],["ref",(paid()?"":"🔒 ")+"Référence KPI"],["abo",(hasAbo()?"":"🔒 ")+"Espace Abonnement"],["acc",(hasAcc()||X.tach.length?"":"🔒 ")+"Espace Accompagnement"],["classe",(hasAbo()?"":"🔒 ")+"Salle de classe"]]:[])];
  if(!tabs.some(t=>t[0]==tab))tab=tabs.length?tabs[0][0]:"dash";
  $("#app").innerHTML=`<header><img src="${LOGO}" alt="GSC Business Center"><div><b>Plateforme de gestion e-commerce</b><small>${S?esc(S.boutique||S.nom):"Bienvenue"}</small></div><span class=r>${admin?"Administrateur":"Espace client"}</span><button class=b id=lo style="background:var(--mg)">Déconnexion</button></header>${ann?`<div class=an>📣 ${esc(ann)}</div>`:""}<nav>${tabs.map(t=>`<button data-tab=${t[0]} class="${t[0]==tab?"on":""}">${t[1]}</button>`).join("")}</nav><main>${view()}<p class=mu id=st>${esc(note)}</p></main>`;lock()};
 
@@ -297,7 +381,7 @@ document.addEventListener("click",async e=>{
  if(tb&&MINE.includes(tb.dataset.tab)&&!X.loading){xLoad();return}
  const t=e.target.closest("[data-x]");if(!t||/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName))return;
  const a=t.dataset.x,id=t.dataset.id,A=X.A;
- if(a=="cspace"){X.cspace=id=="acc"?"acc":"abo";rr()}
+ if(a=="cspace"){X.cspace=id=="acc"?"acc":id=="classe"?"classe":"abo";rr()}
  else if(a=="edadd"){X.ed=X.ed||[];const ac=X.cspace=="acc",l=[...X.ed].reverse().find(r=>ac?r.audience=="accompagnes":r.audience!="accompagnes");
   X.ed.push(ac?{id:null,formation:ACC_FORM,module:l?l.module:"",ordre:l?(+l.ordre||0)+1:1,type:"fichier",titre:"",lien:"",resume:"",audience:"accompagnes",fichier:null,fichier_nom:null,publie:true}:{id:null,formation:l?l.formation:"",module:l?l.module:"",ordre:l?(+l.ordre||0)+1:1,type:"video",titre:"",lien:"",resume:"",audience:"abonnes",fichier:null,fichier_nom:null,publie:true});X.edDirty=true;rr()}
  else if(a=="edel"){const i=+t.dataset.i,r=(X.ed||[])[i];if(!r)return;if(!r.id){if(r.fichier)sb.storage.from("contenus").remove([r.fichier]).catch(()=>{});X.ed.splice(i,1);rr();return}if(!confirm("Supprimer ce contenu ?"))return;run(async()=>{ok(await sb.from("contenus").delete().eq("id",r.id));if(r.fichier)await sb.storage.from("contenus").remove([r.fichier]);X.ed.splice(i,1)})}
@@ -345,6 +429,19 @@ document.addEventListener("click",async e=>{
   if(r.lien&&!safeLink(r.lien))return alert("Le lien doit commencer par https:// ou être un fichier du site (ex. fichiers/guide.pdf).");
   if(r.image&&!safeImg(r.image))return alert("L’image doit être un fichier du site, par exemple preuves/cas1.png");
   run(async()=>ok(await sb.from("contenus").insert(r)))}
+ else if(a=="csalle"){CL.salle=id=="accompagnes"?"accompagnes":"abonnes";CL.loaded=false;CL.msgs=[];rr()}
+ else if(a=="cmsend")clSendText();
+ else if(a=="crec")recStart();else if(a=="crecsend")recSend();else if(a=="crecno")recCancel();
+ else if(a=="cmdel"){const m=CL.msgs.find(x=>String(x.id)==t.dataset.m);if(!m||!confirm("Supprimer ce message ?"))return;try{ok(await sb.from("classe_messages").delete().eq("id",m.id));if(m.fichier)await sb.storage.from("classe").remove([m.fichier]).catch(()=>{});CL.msgs=CL.msgs.filter(x=>x!==m);clPaint()}catch(x){alert(x.message)}}
+ else if(a=="cdl"||a=="copen"){const m=CL.msgs.find(x=>String(x.id)==t.dataset.m);if(!m||!m.fichier)return;const w=a=="copen"?window.open("about:blank","_blank"):null;
+  try{const u=await sgn(m.fichier,a=="cdl"?(m.fichier_nom||true):null);if(w){w.opener=null;w.location.href=u}else location.assign(u)}catch(x){if(w)w.close();alert(x.message)}}
+ else if(a=="cplay"){const m=CL.msgs.find(x=>String(x.id)==t.dataset.m),box=m&&$("#x-cv-"+m.id);if(!m||!box)return;
+  try{const u=await sgn(m.fichier);box.innerHTML=`<video controls controlsList=nodownload playsinline preload=metadata style="width:100%;max-width:560px;border-radius:8px;background:#000"></video>`;const v=box.querySelector("video");v.addEventListener("error",()=>{box.insertAdjacentHTML("beforeend",`<small class=no> Lecture impossible : utilisez Télécharger.</small>`)},{once:true});v.src=u;const pr=v.play&&v.play();if(pr&&pr.catch)pr.catch(()=>{})}catch(x){alert(x.message)}}
+ else if(a=="cs_add"){const tt=val("x-st").trim(),dt=val("x-sdt"),li=val("x-sli").trim();if(!tt)return alert("Le titre est obligatoire.");if(!dt)return alert("Indiquez la date et l’heure.");if(li&&!safeUrl(li))return alert("Le lien doit commencer par https://");
+  const row={titre:tt.slice(0,150),type:val("x-sy")||"visio",audience:val("x-sa")||"abonnes",debut:new Date(dt).toISOString(),lien:li||null,description:val("x-sde").trim().slice(0,1000)||null,statut:"programmee"};
+  try{ok(await sb.from("classe_sessions").insert(row));await clFetch();rr()}catch(x){alert(x.message)}}
+ else if(a=="cs_start"||a=="cs_end"){try{ok(await sb.from("classe_sessions").update({statut:a=="cs_start"?"en_cours":"terminee"}).eq("id",id));await clFetch()}catch(x){alert(x.message)}}
+ else if(a=="cs_del"){if(!confirm("Supprimer ce rendez-vous ?"))return;try{ok(await sb.from("classe_sessions").delete().eq("id",id));await clFetch()}catch(x){alert(x.message)}}
  else if(a=="cedit"){if(X.edDirty)return alert("Enregistrez d’abord les modifications du tableau (bouton « Enregistrer les contenus »).");X.cedit=id;rr();const f=$("#x-form");if(f&&f.scrollIntoView)f.scrollIntoView({behavior:"smooth"})}
  else if(a=="ccancel"){X.cedit="";rr()}
  else if(a=="csave"){if(X.edDirty)return alert("Enregistrez d’abord les modifications du tableau (bouton « Enregistrer les contenus »).");
@@ -381,6 +478,7 @@ document.addEventListener("change",async e=>{
   const fait=a=="task"?t.checked:k.fait,pr=a=="proof"?t.value:(k.preuve||"");
   run(async()=>ok(await sb.rpc("acc_maj_tache",{p_id:k.id,p_fait:fait,p_preuve:pr})))}
  else if(a=="ed")edSet(t);
+ else if(a=="cfile"){const f=t.files&&t.files[0];t.value="";clSendFile(f)}
  else if(a=="done"){const id=t.dataset.id;try{if(t.checked){ok(await sb.from("contenus_suivi").upsert({user_id:me.id,contenu_id:id},{ignoreDuplicates:true}));if(!X.suivi.includes(id))X.suivi.push(id)}else{ok(await sb.from("contenus_suivi").delete().eq("user_id",me.id).eq("contenu_id",id));X.suivi=X.suivi.filter(x=>x!=id)}rr()}catch(x){alert(x.message);t.checked=!t.checked}}
  else if(a=="atask"){run(async()=>ok(await sb.from("acc_taches").update({fait:t.checked,fait_le:t.checked?new Date().toISOString():null}).eq("id",t.dataset.id)))}
 });
